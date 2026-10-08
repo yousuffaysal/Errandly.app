@@ -138,7 +138,7 @@ pub fn is_simple_request(request: &str) -> bool {
 }
 
 /// The folder a file of this kind goes to, or None to leave it in place.
-fn kind_folder(kind: &str) -> Option<&'static str> {
+pub fn kind_folder(kind: &str) -> Option<&'static str> {
     Some(match kind {
         "document" | "text" => "Documents",
         "spreadsheet" => "Spreadsheets",
@@ -156,7 +156,7 @@ fn kind_folder(kind: &str) -> Option<&'static str> {
 }
 
 /// Name-based folders for a model's speciality, checked before file kind.
-fn persona_folder(persona: &str, name: &str) -> Option<&'static str> {
+pub fn persona_folder(persona: &str, name: &str) -> Option<&'static str> {
     let n = name.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
     match persona {
@@ -191,6 +191,67 @@ pub fn plan_simple(root: &Path, files: &[FileEntry], persona: &str) -> Result<Pl
         meta: PlanMeta { categories, scanned_files: files.len(), left_in_place, rejected_outputs: 0 },
         operations,
     })
+}
+
+/// Where a file should end up: a folder (None = stay where it is) and a name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placement {
+    pub folder: Option<String>,
+    pub name: String,
+}
+
+/// Turns placements (move and/or rename) into validated operations. Files
+/// without a placement, or whose placement changes nothing, stay put. Returns
+/// the operations and the names of files left in place.
+pub fn build_placements(
+    root: &Path,
+    files: &[FileEntry],
+    placements: &HashMap<usize, Placement>,
+) -> Result<(Vec<Operation>, Vec<String>)> {
+    let mut by_folder: BTreeMap<Option<&str>, Vec<(&FileEntry, &str)>> = BTreeMap::new();
+    let mut left = Vec::new();
+    for (i, file) in files.iter().enumerate() {
+        match placements.get(&i) {
+            Some(p) if p.folder.is_some() || p.name != file.name => {
+                by_folder.entry(p.folder.as_deref()).or_default().push((file, p.name.as_str()))
+            }
+            _ => left.push(file.name.clone()),
+        }
+    }
+    let mut ops = Vec::new();
+    // Names already taken by this plan, plus every file that stays at the top
+    // level, so a rename can't land on a name that's still in use.
+    let mut claimed: HashSet<PathBuf> = files.iter().map(|f| root.join(&f.name)).collect();
+    for (folder, members) in by_folder {
+        let dir = match folder {
+            Some(f) => root.join(f),
+            None => root.to_path_buf(),
+        };
+        if folder.is_some() {
+            match std::fs::symlink_metadata(&dir) {
+                Ok(m) if m.is_dir() => {}
+                Ok(_) => {
+                    left.extend(members.iter().map(|(f, _)| f.name.clone()));
+                    continue;
+                }
+                Err(_) => ops.push(Operation::CreateFolder { path: dir.clone() }),
+            }
+        }
+        for (file, name) in members {
+            let from = root.join(&file.name);
+            claimed.remove(&from);
+            let to = unique_destination(&dir, name, &claimed);
+            claimed.insert(to.clone());
+            if to != from {
+                ops.push(Operation::MoveFile { from, to });
+            }
+        }
+    }
+    for op in &ops {
+        validate_operation(root, op)?;
+    }
+    left.sort();
+    Ok((ops, left))
 }
 
 /// Deterministically converts file → folder assignments into operations.
@@ -364,7 +425,7 @@ fn kind_fits(folder: &str, ext: &str) -> bool {
 
 /// A coarse, deterministic kind for each extension. Small models sort far more
 /// reliably with this hint than from the raw extension alone.
-fn file_kind(ext: &str) -> &'static str {
+pub fn file_kind(ext: &str) -> &'static str {
     match ext {
         "pdf" | "doc" | "docx" | "pages" | "rtf" | "odt" => "document",
         "txt" | "md" => "text",

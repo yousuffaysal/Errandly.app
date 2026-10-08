@@ -98,7 +98,7 @@ pub fn quick(message: &str, has_folder: bool) -> Option<Intent> {
         return Some(Intent::Chat);
     }
 
-    let organize = has(&["organi", "sort ", "sort this", "sort my", "tidy", "clean up", "cleanup", "declutter", "arrange", "put in order", "group "]);
+    let organize = has(&["organi", "renam", "sort ", "sort this", "sort my", "tidy", "clean up", "cleanup", "declutter", "arrange", "put in order", "group "]);
     let summarize = has(&["summar", "study notes", "study guide", "practice question", "key points", "tl;dr", "what's in", "read "]);
     let spreadsheet = has(&["spreadsheet", "excel", "xlsx", "csv", "invoice", "expense", "sales", "budget", "revenue", "profit", "total", "analy"]);
     match (organize, summarize, spreadsheet) {

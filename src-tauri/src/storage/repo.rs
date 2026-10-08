@@ -114,16 +114,13 @@ pub fn list_grants(db: &Db) -> Result<Vec<Grant>> {
 }
 
 /// True if `root` is still an active grant. Checked again right before execution.
+/// True if `root` is a granted folder or inside one (a subfolder the user's
+/// grant already covers).
 pub fn is_granted(db: &Db, root: &str) -> Result<bool> {
-    db.with(|c| {
-        c.query_row(
-            "SELECT 1 FROM permission_grants WHERE path = ?1",
-            [root],
-            |_| Ok(()),
-        )
-        .optional()
-    })
-    .map(|r| r.is_some())
+    let grants: Vec<String> =
+        db.with(|c| c.prepare("SELECT path FROM permission_grants")?.query_map([], |r| r.get(0))?.collect())?;
+    let root = std::path::Path::new(root);
+    Ok(grants.iter().any(|g| root.starts_with(g)))
 }
 
 pub fn delete_grant(db: &Db, id: &str) -> Result<()> {

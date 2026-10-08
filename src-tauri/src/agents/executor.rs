@@ -119,7 +119,8 @@ fn run_step(db: &Db, task_id: &str, seq: i64, root: &Path, op: &Operation) -> Re
             let mut op = op.clone();
             if std::fs::symlink_metadata(to).is_ok() {
                 let dir = to.parent().expect("validated move has a parent");
-                let name = from.file_name().and_then(|n| n.to_str()).expect("scanned names are UTF-8");
+                // Keep the planned (possibly new) name, just made unique.
+                let name = to.file_name().and_then(|n| n.to_str()).expect("planned names are UTF-8");
                 op = Operation::MoveFile { from: from.clone(), to: unique_destination(dir, name, &Default::default()) };
                 validate_operation(root, &op)?;
             }

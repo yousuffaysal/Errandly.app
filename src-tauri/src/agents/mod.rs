@@ -1,4 +1,5 @@
 pub mod analyst;
+pub mod assets;
 pub mod documents;
 pub mod executor;
 pub mod plan;

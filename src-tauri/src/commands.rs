@@ -24,8 +24,9 @@ use crate::storage::usage::{self, Counter, DayCounts};
 use crate::storage::repo::{self, Grant, StepStatus, TaskStatus, TaskView};
 use crate::storage::sqlite::Db;
 use crate::agents;
+use crate::agents::assets;
 use crate::security::permissions::ensure_within;
-use crate::tools::files::{scan_folder, FileEntry};
+use crate::tools::files::{scan_folder, subfolders, FileEntry};
 use crate::tools::{documents, spreadsheets};
 
 /// Documents summarized per request; more can be named explicitly.
@@ -667,7 +668,20 @@ async fn respond(
         }
         Intent::OrganizeFiles => {
             let (root, files) = granted_files(conv)?;
-            let folder = conv.folder.as_deref().unwrap_or_default();
+            if files.is_empty() {
+                let subs = subfolders(&root)?;
+                return Ok(Reply::text(if subs.is_empty() {
+                    "This folder is empty, so there’s nothing to organize.".to_string()
+                } else {
+                    format!(
+                        "There are no files directly in this folder, only the folders {}. Add one of those with the + \
+                         button and I’ll organize it.",
+                        subs.iter().take(6).map(|s| format!("“{s}”")).collect::<Vec<_>>().join(", ")
+                    )
+                }));
+            }
+            let folder = root.display().to_string();
+            let folder = folder.as_str();
             let mut instruction = text.to_string();
             if !conv.instructions.trim().is_empty() {
                 instruction.push_str(&format!(
@@ -691,7 +705,14 @@ async fn respond(
             };
             // Simple requests are sorted instantly by code; the model only
             // handles requests that need judgement.
-            let planned = if planner::is_simple_request(text) && conv.instructions.trim().is_empty() {
+            let rename = assets::wants_rename(text);
+            let planned = if assets::is_brand_request(text, &root, &files) {
+                emit(2, "Sorting your logos and icons".into());
+                assets::plan_brand(&root, &files, rename)
+            } else if rename {
+                emit(2, "Choosing clear names".into());
+                assets::plan_clean_names(&root, &files, persona.id)
+            } else if planner::is_simple_request(text) && conv.instructions.trim().is_empty() {
                 emit(2, "Sorting files".into());
                 planner::plan_simple(&root, &files, persona.id)
             } else {
@@ -715,13 +736,19 @@ async fn respond(
                         Operation::MoveFile { to, .. } => to.parent(),
                         _ => None,
                     });
-                    let folder_count = folders.collect::<std::collections::HashSet<_>>().len();
+                    let folder_count = folders.filter(|d| *d != root.as_path()).collect::<std::collections::HashSet<_>>().len();
+                    let renames = p
+                        .operations
+                        .iter()
+                        .filter(|o| matches!(o, Operation::MoveFile { from, to } if from.file_name() != to.file_name()))
+                        .count();
+                    let what = match (folder_count, renames) {
+                        (0, r) => format!("rename {r} of {} files", p.meta.scanned_files),
+                        (f, 0) => format!("sort {moves} of {} files into {f} folders", p.meta.scanned_files),
+                        (f, r) => format!("sort {moves} of {} files into {f} folders and give {r} of them clearer names", p.meta.scanned_files),
+                    };
                     Ok(Reply {
-                        text: format!(
-                            "Here’s my plan for {name}. I’d sort {moves} of {} files into {folder_count} folders. \
-                             Nothing moves until you approve.",
-                            p.meta.scanned_files
-                        ),
+                        text: format!("Here’s my plan for {name}. I’d {what}. Nothing changes until you approve."),
                         task_id: Some(task_id),
                         card: None,
                     })
@@ -744,6 +771,16 @@ fn granted_files(conv: &Conversation) -> Result<(PathBuf, Vec<FileEntry>)> {
         return Err(AppError::Permission("that folder has moved; add it to this conversation again".into()));
     }
     let files = scan_folder(&root)?;
+    // A folder holding just one subfolder (as unzipped downloads often do):
+    // work inside it. It's still within the folder the user granted.
+    if files.is_empty() {
+        if let [only] = subfolders(&root)?.as_slice() {
+            let inner = root.join(only);
+            ensure_within(&root, &inner)?;
+            let files = scan_folder(&inner)?;
+            return Ok((inner, files));
+        }
+    }
     Ok((root, files))
 }
 
@@ -1055,6 +1092,39 @@ mod live {
                     assert!(!lower.split(|c: char| !c.is_alphanumeric() && c != '-').any(|w| w.starts_with(banned)), "mentions {banned}: {}", r.text);
                 }
                 conversations::add_message(&db, &conv.id, Role::Assistant, &r.text, None).unwrap();
+            }
+        }
+    }
+
+    /// Runs one chat request against a real folder and prints the plan, without
+    /// changing anything: ERRANDLY_TRY_DIR=/path ERRANDLY_TRY_ASK="..." cargo test -- --ignored live_try_folder
+    #[test]
+    #[ignore]
+    fn live_try_folder() {
+        let (Ok(dir), Ok(ask)) = (std::env::var("ERRANDLY_TRY_DIR"), std::env::var("ERRANDLY_TRY_ASK")) else { return };
+        let db = Db::open_in_memory().unwrap();
+        let root = std::fs::canonicalize(&dir).unwrap();
+        let grant = repo::upsert_grant(&db, &root.display().to_string()).unwrap();
+        let conv = conversations::create(&db, "default", "suf-4").unwrap();
+        conversations::set_grant(&db, &conv.id, Some(&grant.id)).unwrap();
+        let conv = conversations::get(&db, &conv.id).unwrap();
+        let t = std::time::Instant::now();
+        let r = tauri::async_runtime::block_on(respond(
+            &db, &conv, &ask, &Ollama::for_persona("suf-4"), personas::get("suf-4"), &AtomicBool::new(false),
+            &|s, l| println!("  [stage {s}] {l}"), &|_| {},
+        )).unwrap();
+        println!("> {ask}\n< {} ({:.1?})", r.text, t.elapsed());
+        if let Some(task) = r.task_id {
+            let task = repo::get_task(&db, &task).unwrap();
+            for s in &task.steps {
+                match &s.op {
+                    Operation::CreateFolder { path } => println!("  + folder {}", path.file_name().unwrap().to_string_lossy()),
+                    Operation::MoveFile { from, to } => println!(
+                        "  {} → {}",
+                        from.file_name().unwrap().to_string_lossy(),
+                        to.strip_prefix(&task.root).unwrap().display()
+                    ),
+                }
             }
         }
     }

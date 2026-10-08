@@ -40,6 +40,7 @@ export function TaskCard({ taskId, onChanged, onError }: {
   const moves = task.steps.filter((s): s is Move => s.op === "move_file");
   const created = new Set(task.steps.flatMap((s) => (s.op === "create_folder" ? [relative(task.root, s.path)] : [])));
   const groups = groupByFolder(task.root, moves);
+  const renamed = moves.filter((m) => basename(m.from) !== basename(m.to)).length;
   const total = moves.length;
   const done = moves.filter((m) => m.status === "done" || m.status === "undone").length;
   const awaiting = task.status === "awaiting_approval";
@@ -92,7 +93,8 @@ export function TaskCard({ taskId, onChanged, onError }: {
             <div key={folder}>
               <i style={{ background: COLORS[i % COLORS.length] }} />
               <span>
-                {folder}/{created.has(folder) && <em className="ew-new-folder"> new</em>}
+                {folder === IN_PLACE ? folder : `${folder}/`}
+                {created.has(folder) && <em className="ew-new-folder"> new</em>}
               </span>
               <strong>{items.length}</strong>
               <small>{Math.round((items.length / total) * 100)}%</small>
@@ -100,7 +102,7 @@ export function TaskCard({ taskId, onChanged, onError }: {
           ))}
         </div>
 
-        <details className="ew-review">
+        <details className="ew-review" open={renamed > 0 && moves.length <= 30}>
           <summary>Review every change</summary>
           <ul>
             {moves.map((m) => (
@@ -108,6 +110,7 @@ export function TaskCard({ taskId, onChanged, onError }: {
                 <span className="ew-review-name">{basename(m.from)}</span>
                 <span className="ew-review-arrow">→</span>
                 <span className="ew-review-to">{relative(task.root, m.to)}</span>
+                {basename(m.from) !== basename(m.to) && <em className="ew-new-folder">renamed</em>}
                 {!awaiting && <span className="ew-review-status">{m.status.replace("_", " ")}</span>}
                 {m.error && <small>{m.error}</small>}
               </li>
@@ -173,10 +176,14 @@ export function TaskCard({ taskId, onChanged, onError }: {
   );
 }
 
+/** Files renamed without moving are grouped under this label. */
+const IN_PLACE = "Renamed here";
+
 function groupByFolder(root: string, moves: Move[]) {
   const groups = new Map<string, Move[]>();
   for (const m of moves) {
-    const folder = relative(root, m.to).split("/")[0];
+    const rel = relative(root, m.to);
+    const folder = rel.includes("/") ? rel.split("/")[0] : IN_PLACE;
     groups.set(folder, [...(groups.get(folder) ?? []), m]);
   }
   return [...groups.entries()].sort((a, b) => b[1].length - a[1].length);

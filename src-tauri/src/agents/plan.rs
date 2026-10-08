@@ -25,9 +25,10 @@ pub struct PlanMeta {
     pub rejected_outputs: usize,
 }
 
-/// Re-checks an operation against the granted root. Phase 0 plans only ever
-/// create folders directly under the root and move files from the root into one
-/// of those folders, so anything else is rejected.
+/// Re-checks an operation against the folder being organized. Plans only ever
+/// create folders directly under it, and move a file from it into one of those
+/// folders or rename it in place (a move to a new name, never over an existing
+/// file). Anything else is rejected.
 pub fn validate_operation(root: &Path, op: &Operation) -> Result<()> {
     let direct_child = |p: &Path| p.parent() == Some(root);
     match op {
@@ -44,7 +45,8 @@ pub fn validate_operation(root: &Path, op: &Operation) -> Result<()> {
             ensure_within(root, from)?;
             ensure_within(root, to)?;
             let into_subfolder = to.parent().is_some_and(direct_child);
-            if !direct_child(from) || !into_subfolder {
+            let renamed_in_place = direct_child(to) && to != from;
+            if !direct_child(from) || !(into_subfolder || renamed_in_place) {
                 return Err(AppError::InvalidPlan(format!(
                     "unsupported move {} -> {}",
                     from.display(),
@@ -64,6 +66,7 @@ mod tests {
     fn only_allows_the_flat_organize_shape() {
         let root = PathBuf::from("/tmp/granted-root-that-need-not-exist");
         let ok = [
+            Operation::MoveFile { from: root.join("a.png"), to: root.join("logo-512x512.png") },
             Operation::CreateFolder { path: root.join("Images") },
             Operation::MoveFile { from: root.join("a.png"), to: root.join("Images/a.png") },
         ];
@@ -71,9 +74,9 @@ mod tests {
             validate_operation(&root, op).unwrap();
         }
         let bad = [
+            Operation::MoveFile { from: root.join("a.png"), to: root.join("a.png") },
             Operation::CreateFolder { path: root.join("a/b") },
             Operation::CreateFolder { path: "/etc/x".into() },
-            Operation::MoveFile { from: root.join("a.png"), to: root.join("b.png") },
             Operation::MoveFile { from: root.join("Images/a.png"), to: root.join("X/a.png") },
             Operation::MoveFile { from: "/etc/passwd".into(), to: root.join("X/passwd") },
             Operation::MoveFile { from: root.join("a.png"), to: root.join("X/../../a.png") },

@@ -54,6 +54,20 @@ pub fn scan_folder(root: &Path) -> Result<Vec<FileEntry>> {
     Ok(files)
 }
 
+/// Names of the visible, real (non-symlink) folders directly inside `root`.
+pub fn subfolders(root: &Path) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        if !name.starts_with('.') && std::fs::symlink_metadata(entry.path())?.is_dir() {
+            out.push(name);
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
 /// Returns `dir/name`, or `dir/name (n).ext` if that path exists on disk or is
 /// already claimed by an earlier operation in the same plan.
 pub fn unique_destination(dir: &Path, name: &str, claimed: &HashSet<PathBuf>) -> PathBuf {
