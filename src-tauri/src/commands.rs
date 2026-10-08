@@ -521,10 +521,18 @@ mod live {
         let cancel = AtomicBool::new(false);
         let log = |stage: u8, label: String| println!("  [stage {stage}] {label}");
         let ask = |conv_id: &str, text: &str| {
+            conversations::add_message(&db, conv_id, Role::User, text, None).unwrap();
             let conv = conversations::get(&db, conv_id).unwrap();
             let persona = personas::get(&conv.persona);
             let t = std::time::Instant::now();
-            let r = tauri::async_runtime::block_on(respond(&db, &conv, text, &Ollama::for_persona(persona.id), persona, &cancel, &log, &|_| {})).unwrap();
+            let first = std::sync::Mutex::new(None::<std::time::Duration>);
+            let on_reply = |_: &str| {
+                first.lock().unwrap().get_or_insert(t.elapsed());
+            };
+            let r = tauri::async_runtime::block_on(respond(&db, &conv, text, &Ollama::for_persona(persona.id), persona, &cancel, &log, &on_reply)).unwrap();
+            if let Some(f) = *first.lock().unwrap() {
+                println!("  first words after {f:.1?}");
+            }
             println!("> [{}] {text}\n< {} ({:.1?})\n", persona.name, r.0, t.elapsed());
             r
         };
