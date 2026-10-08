@@ -3,10 +3,12 @@ import type { AiStatus, Conversation, ConversationView, Project, Task } from "./
 
 export const PROGRESS_EVENT = "errandly://progress";
 export const INSTALL_EVENT = "errandly://install";
+export const REPLY_EVENT = "errandly://reply";
 
 export const api = {
   aiStatus: () => invoke<AiStatus>("ai_status"),
   installModels: () => invoke<void>("install_models"),
+  warmUp: (persona: string) => invoke<void>("warm_up", { persona }),
 
   listProjects: () => invoke<Project[]>("list_projects"),
   createProject: (name: string, description = "") => invoke<Project>("create_project", { name, description }),

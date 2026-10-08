@@ -4,9 +4,9 @@ import {
   ArrowUp, ArrowUpRight, BookOpen, Check, ChevronRight, Command, Download, Folder, FolderOpen,
   LayoutGrid, MessageSquare, PanelLeftClose, PanelRight, Pencil, Plus, Search, ShieldCheck, Square, Trash2, X,
 } from "lucide-react";
-import { api, errorText, PROGRESS_EVENT } from "../api";
+import { api, errorText, PROGRESS_EVENT, REPLY_EVENT } from "../api";
 import { basename } from "../paths";
-import type { AiStatus, Conversation, ConversationView, Message, ProgressEvent, Project } from "../types";
+import type { AiStatus, Conversation, ConversationView, Message, ProgressEvent, Project, ReplyEvent } from "../types";
 import { AuthDialog, ProfileRow, useUser } from "./Account";
 import { ModelSetup } from "./ModelSetup";
 import { PersonaPicker } from "./PersonaPicker";
@@ -39,6 +39,8 @@ export default function Workspace() {
   const [context, setContext] = useState(() => window.innerWidth > 1000);
   const [sidebar, setSidebar] = useState(false);
   const [thinking, setThinking] = useState<Record<string, ProgressEvent>>({});
+  // Chat replies as they stream in, per conversation.
+  const [streaming, setStreaming] = useState<Record<string, string>>({});
   const [instructions, setInstructions] = useState("");
   const [saved, setSaved] = useState(true);
   const [notice, setNotice] = useState("");
@@ -53,6 +55,7 @@ export default function Workspace() {
   const conv = view?.conversation;
   const busy = conv ? Boolean(thinking[conv.id]) : false;
   const progress = conv ? thinking[conv.id] : undefined;
+  const live = conv ? streaming[conv.id] : undefined;
   const persona = ai?.personas.find((p) => p.id === conv?.persona) ?? ai?.personas[0];
   const modelReady = Boolean(ai?.reachable && persona?.installed);
   const fail = useCallback((e: unknown) => setNotice(errorText(e)), []);
@@ -124,10 +127,20 @@ export default function Workspace() {
     const un = listen<ProgressEvent>(PROGRESS_EVENT, (e) =>
       setThinking((t) => (t[e.payload.conversationId] ? { ...t, [e.payload.conversationId]: e.payload } : t)),
     );
+    const unReply = listen<ReplyEvent>(REPLY_EVENT, (e) =>
+      setStreaming((s) => ({ ...s, [e.payload.conversationId]: e.payload.text })),
+    );
     return () => {
       un.then((f) => f());
+      unReply.then((f) => f());
     };
   }, []);
+
+  // Load the conversation's model into memory ahead of the first message.
+  const personaId = conv?.persona;
+  useEffect(() => {
+    if (modelReady && personaId) api.warmUp(personaId).catch(() => {});
+  }, [modelReady, personaId]);
 
   const checkAi = useCallback(() => api.aiStatus().then(setAi).catch(() => {}), []);
   useEffect(() => {
@@ -138,7 +151,7 @@ export default function Workspace() {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [view?.messages.length, busy]);
+  }, [view?.messages.length, busy, live]);
 
   // Auto-save instructions shortly after typing stops.
   useEffect(() => {
@@ -187,6 +200,7 @@ export default function Workspace() {
       if (activeId.current === id) await open(id).catch(() => {});
     } finally {
       setThinking(({ [id]: _, ...rest }) => rest);
+      setStreaming(({ [id]: _, ...rest }) => rest);
       refreshList().catch(() => {});
     }
   }
@@ -440,7 +454,17 @@ export default function Workspace() {
                 />
               ))
             )}
-            {busy && progress && (
+            {busy && live && (
+              <article className="ew-message ew-assistant">
+                <div className="ew-message-label">
+                  <span className="ew-small-mark">✳</span>
+                  <strong>{persona?.name ?? "Errandly"}</strong>
+                  <small>Your thinking partner</small>
+                </div>
+                <div className="ew-message-text ew-streaming">{live}</div>
+              </article>
+            )}
+            {busy && progress && !live && (
               <div className="ew-thinking" role="status" aria-live="polite">
                 <div className="ew-orbit">
                   <i />

@@ -139,3 +139,6 @@ body { -webkit-font-smoothing: antialiased; }
 .ew-modal-links { display: flex; justify-content: center; gap: 16px; margin-top: 16px; }
 .ew-modal-links button { font-size: 11px; color: #62714e; text-decoration: underline; text-underline-offset: 3px; }
 .ew-modal-note { font-size:11px; color: #656f55; margin-top: 18px !important; line-height: 1.7; }
+
+/* A chat reply while it streams in */
+.ew-streaming::after { content: "▍"; margin-left: 2px; color: #55683f; animation: ew-breathe 1s ease-in-out infinite; }

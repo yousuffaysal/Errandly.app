@@ -80,6 +80,11 @@ export interface ConversationView {
   messages: Message[];
 }
 
+export interface ReplyEvent {
+  conversationId: string;
+  text: string;
+}
+
 export interface ProgressEvent {
   conversationId: string;
   stage: number;
