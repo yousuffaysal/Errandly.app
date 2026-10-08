@@ -140,6 +140,9 @@ mod tests {
         assert!(open_auth_url("https://evil.example.com/auth/v1/authorize".into()).is_err());
         assert!(open_auth_url("https://x.supabase.co/rest/v1/users".into()).is_err());
         assert!(open_auth_url("file:///etc/passwd".into()).is_err());
-        assert!(open_auth_url("https://someone-else.supabase.co/auth/v1/authorize?provider=google".into()).is_err());
+        // Builds with accounts configured are pinned to their own project.
+        if option_env!("ERRANDLY_SUPABASE_HOST").is_some() {
+            assert!(open_auth_url("https://someone-else.supabase.co/auth/v1/authorize?provider=google".into()).is_err());
+        }
     }
 }
