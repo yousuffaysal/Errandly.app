@@ -53,8 +53,8 @@ export function ModelSetup({ ai, onDone }: { ai: AiStatus; onDone: () => void })
           <strong>Set up Errandly’s models</strong>
           <span>
             {ai.baseInstalled
-              ? "Arip, Shadow, Suf 4 and Howen 2 take a few seconds to prepare."
-              : "One download (about 2.5 GB) powers all four models: Arip, Shadow, Suf 4 and Howen 2. Everything runs on this Mac."}
+              ? "Ario, Shadow, Suf 4 and Howen 2 take a few seconds to prepare."
+              : "One download (about 2.5 GB) powers all four models: Ario, Shadow, Suf 4 and Howen 2. Everything runs on this Mac."}
           </span>
           {error && <span className="ew-setup-error">{error}</span>}
           <button className="ew-followup ew-approve" onClick={install}>

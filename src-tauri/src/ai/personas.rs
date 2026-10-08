@@ -32,14 +32,14 @@ pub struct Persona {
 
 pub const PERSONAS: &[Persona] = &[
     Persona {
-        id: "arip",
-        name: "Arip",
+        id: "ario",
+        name: "Ario",
         tagline: "The organizer",
         behavior: "Decisive and tidy. Gets straight to a clear plan with a few broad folders.",
         skills: &["Organize any folder", "Sort by file type", "Tidy Downloads and Desktop"],
         coming: &["Duplicate finder", "Smart renaming"],
         temperature: 0.0,
-        voice: "You are Arip, Errandly's organizer. You are upbeat, decisive and brief. \
+        voice: "You are Ario, Errandly's organizer. You are upbeat, decisive and brief. \
                 You like order and you get people to a clear plan quickly.",
         organize_style: "Prefer 3 to 6 broad, familiar folders such as Documents, Images, Spreadsheets, \
                          Installers and Archives. Place every file you reasonably can.",
@@ -118,6 +118,6 @@ mod tests {
         for p in PERSONAS {
             assert!(p.model().chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
         }
-        assert_eq!(get("nope").id, "arip");
+        assert_eq!(get("nope").id, "ario");
     }
 }

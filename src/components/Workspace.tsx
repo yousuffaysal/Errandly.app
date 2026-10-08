@@ -113,7 +113,7 @@ export default function Workspace() {
       setConversations(list);
       if (list.length) await open(list[0].id);
       else {
-        await startConversation(projectId, "arip");
+        await startConversation(projectId, "ario");
         await refreshList();
       }
     })().catch(fail);
@@ -174,7 +174,7 @@ export default function Workspace() {
     setInput("");
     if (view && view.messages.length === 0) return;
     try {
-      await startConversation(projectId, conv?.persona ?? "arip");
+      await startConversation(projectId, conv?.persona ?? "ario");
       await refreshList();
     } catch (e) {
       fail(e);
@@ -248,7 +248,7 @@ export default function Workspace() {
       await refreshProjects();
       if (id === conv?.id) {
         if (list.length) await open(list[0].id);
-        else await startConversation(projectId, conv?.persona ?? "arip");
+        else await startConversation(projectId, conv?.persona ?? "ario");
       }
     } catch (e) {
       fail(e);

@@ -42,7 +42,7 @@ sampling and organizing style, defined in `src-tauri/src/ai/personas.rs`.
 
 | Model | Role | Organizes by |
 |---|---|---|
-| **Arip** | The organizer: decisive, tidy | 3–6 broad familiar folders |
+| **Ario** | The organizer: decisive, tidy | 3–6 broad familiar folders |
 | **Shadow** | The careful one: privacy-first | Conservative; sensitive files into `Private`; unsure → left in place |
 | **Suf 4** | The scholar | Course / subject, lectures, assignments, papers |
 | **Howen 2** | The business partner | Invoices, receipts, contracts, reports, clients |

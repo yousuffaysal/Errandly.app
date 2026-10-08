@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn messages_titles_and_folder_grants() {
         let db = Db::open_in_memory().unwrap();
-        let conv = create(&db, "default", "arip").unwrap();
+        let conv = create(&db, "default", "ario").unwrap();
         assert_eq!(conv.title, "A fresh start");
 
         add_message(&db, &conv.id, Role::User, "Help me organize my Downloads folder, please, by type", None).unwrap();
@@ -268,8 +268,8 @@ mod tests {
     #[test]
     fn delete_keeps_task_records() {
         let db = Db::open_in_memory().unwrap();
-        let conv = create(&db, "default", "arip").unwrap();
-        let task = repo::create_task(&db, "organize", "arip", "/tmp/x", Some(&conv.id)).unwrap();
+        let conv = create(&db, "default", "ario").unwrap();
+        let task = repo::create_task(&db, "organize", "ario", "/tmp/x", Some(&conv.id)).unwrap();
         add_message(&db, &conv.id, Role::Assistant, "plan", Some(&task)).unwrap();
         delete(&db, &conv.id).unwrap();
         assert!(get(&db, &conv.id).is_err());

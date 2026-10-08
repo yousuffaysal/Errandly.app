@@ -82,6 +82,10 @@ CREATE INDEX messages_by_conversation ON messages (conversation_id, id);
 ALTER TABLE tasks ADD COLUMN conversation_id TEXT REFERENCES conversations(id);
 "#, r#"
 ALTER TABLE conversations ADD COLUMN persona TEXT NOT NULL DEFAULT 'arip';
+"#, r#"
+-- Arip was renamed to Ario. Unknown persona ids also fall back to Ario in code.
+UPDATE conversations SET persona = 'ario' WHERE persona = 'arip';
+UPDATE tasks SET model_id = 'Ario' WHERE model_id = 'Arip';
 "#];
 
 pub struct Db {

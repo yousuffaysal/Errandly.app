@@ -2,7 +2,7 @@
 
 ## Models
 
-Errandly's four on-device models (Arip, Shadow, Suf 4, Howen 2) are built on
+Errandly's four on-device models (Ario, Shadow, Suf 4, Howen 2) are built on
 **Phi-4-mini-instruct** by Microsoft, distributed through Ollama.
 
 Phi-4-mini-instruct — Copyright (c) Microsoft Corporation. Licensed under the MIT License:

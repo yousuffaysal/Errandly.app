@@ -537,13 +537,15 @@ mod live {
             r
         };
 
-        // Each model introduces itself in its own voice.
+        // Each model introduces itself in its own voice, and gets the product facts right.
         for p in personas::PERSONAS {
             let conv = conversations::create(&db, "default", p.id).unwrap();
             assert!(ask(&conv.id, "Hi! Who are you and what can you do?").1.is_none());
+            ask(&conv.id, "can you run without internet");
+            ask(&conv.id, "do you know me?");
         }
 
-        let conv = conversations::create(&db, "default", "arip").unwrap();
+        let conv = conversations::create(&db, "default", "ario").unwrap();
         assert!(ask(&conv.id, "Summarize my lecture PDFs into study notes").1.is_none());
         assert!(ask(&conv.id, "Organize my Downloads folder").1.is_none());
 
