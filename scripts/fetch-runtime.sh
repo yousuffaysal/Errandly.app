@@ -10,13 +10,13 @@ URL="https://github.com/ollama/ollama/releases/download/${VERSION}/ollama-darwin
 
 cd "$(dirname "$0")/../src-tauri"
 if [ -x runtime/ollama ] && [ "$(cat runtime/VERSION 2>/dev/null)" = "$VERSION" ]; then
-  echo "runtime $VERSION already present"
+  echo "runtime ${VERSION} already present"
   exit 0
 fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-echo "downloading Ollama $VERSION…"
+echo "downloading Ollama ${VERSION}…"
 # Resume interrupted downloads instead of starting over.
 for attempt in 1 2 3 4 5 6; do
   if curl -fsSL --retry 3 --retry-all-errors -C - -o "$tmp/ollama.tgz" "$URL"; then break; fi
@@ -38,5 +38,5 @@ mkdir -p runtime
 lipo "$tmp/full/ollama" -thin arm64 -output runtime/ollama
 lipo "$tmp/full/llama-server" -thin arm64 -output runtime/llama-server
 cp "$tmp/full/"*LICENSE* runtime/ 2>/dev/null || true
-echo "$VERSION" > runtime/VERSION
+echo "${VERSION}" > runtime/VERSION
 echo "runtime ready in src-tauri/runtime"
