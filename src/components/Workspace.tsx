@@ -6,6 +6,7 @@ import { accountName, AuthDialog, useUser } from "./Account";
 import { Onboarding } from "./Onboarding";
 import { SettingsDialog } from "./Settings";
 import { setCrashSending } from "../crash";
+import { setUsageSharing } from "../usage";
 import { Composer } from "./workspace/Composer";
 import { ContextPanel } from "./workspace/ContextPanel";
 import { MessageList, STAGES } from "./workspace/MessageList";
@@ -68,6 +69,8 @@ export default function Workspace() {
   // Crash reports leave this Mac only if the user opted in.
   const crashReports = settings?.preferences.crashReports ?? false;
   useEffect(() => setCrashSending(crashReports), [crashReports]);
+  const usageStats = settings?.preferences.usageStats ?? false;
+  useEffect(() => setUsageSharing(usageStats), [usageStats]);
 
   // Once we know who is signed in (or that nobody is), switch the backend to
   // that account first, then load its profile and projects.
@@ -243,11 +246,11 @@ export default function Workspace() {
     });
   }
 
-  async function finishOnboarding(profile: Profile, personaId: string) {
+  async function finishOnboarding(profile: Profile, personaId: string, shareUsage: boolean) {
     if (!settings) return;
     await attempt(async () => {
       const saved = await api.saveProfile(profile);
-      const preferences = await api.savePreferences({ ...settings.preferences, defaultPersona: personaId });
+      const preferences = await api.savePreferences({ ...settings.preferences, defaultPersona: personaId, usageStats: shareUsage });
       setSettings({ ...settings, profile: saved, preferences });
       if (conv && view?.messages.length === 0) await choosePersona(personaId);
     });

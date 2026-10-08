@@ -216,6 +216,16 @@ export function SettingsDialog({ settings, ai, user, onClose, onChange, onSignIn
                   onChange={(v) => savePrefs({ crashReports: v === "on" })}
                 />
               </Row>
+              <Row
+                title="Share anonymous usage statistics"
+                hint="Off by default. When on, Errandly sends daily counts only (times opened, messages, tasks completed) under a random ID that isn’t linked to you. Never your name, email, chats or files."
+              >
+                <Segmented
+                  value={settings.preferences.usageStats ? "on" : "off"}
+                  options={[["off", "Off"], ["on", "On"]]}
+                  onChange={(v) => savePrefs({ usageStats: v === "on" })}
+                />
+              </Row>
               <Row title="Crash logs" hint="~/Library/Logs/Errandly">
                 <button className="ew-settings-button" onClick={() => invoke("open_crash_folder").catch(fail)}>
                   Show in Finder
@@ -286,10 +296,10 @@ export function SettingsDialog({ settings, ai, user, onClose, onChange, onSignIn
                   </button>
                 )}
               </Row>
-              <Row title="Models" hint="Ario, Shadow, Suf 4 and Howen 2 are built on Phi-4-mini by Microsoft, used under the MIT License." >
-                <span className="ew-settings-pill">MIT</span>
+              <Row title="Models" hint="Ario, Shadow, Suf 4 and Howen 2 are Errandly’s own on-device models. They run entirely on this Mac.">
+                <span className="ew-settings-pill ok">On this Mac</span>
               </Row>
-              <Row title="Open-source software" hint="Errandly is built with Tauri, React, SQLite, Ollama and other open-source projects under their own licences.">
+              <Row title="Acknowledgements" hint="Errandly includes open-source software. Licence notices are included with the app.">
                 <span />
               </Row>
             </>

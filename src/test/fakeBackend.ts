@@ -17,7 +17,7 @@ export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: s
     notes: "",
     completed: opts.profileCompleted ?? false,
   };
-  const preferences = { defaultPersona: "ario", textSize: "medium", width: "medium", motion: "system", crashReports: false, autoUpdate: false };
+  const preferences = { defaultPersona: "ario", textSize: "medium", width: "medium", motion: "system", crashReports: false, autoUpdate: false, usageStats: false };
   const conv: Conversation = {
     id: "c1", projectId: "p1", title: "A fresh start", persona: "ario", grantId: null, folder: null,
     instructions: "", messageCount: 0, createdAt: "2026-10-08T10:00:00Z", updatedAt: "2026-10-08T10:00:00Z",
@@ -70,6 +70,8 @@ export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: s
           return null;
         case "unsent_crashes":
           return [];
+        case "usage_pending":
+          return { installId: "test", version: "0.0.0", days: [] };
         default:
           return null;
       }

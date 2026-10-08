@@ -1,0 +1,25 @@
+.admin{width:calc(100% - 48px);max-width:1200px;margin:0 auto;padding:40px 0 60px}
+.admin-center{min-height:80vh;display:grid;place-items:center}
+.admin-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+.admin-head h1{font-size:32px}.admin-head p{color:var(--muted);font-size:14px;margin-top:6px}
+.admin-actions{display:flex;gap:14px;align-items:center}
+.admin-error{border:1px solid #b4614f;color:#e39a88;border-radius:8px;padding:12px 14px;margin-bottom:18px}
+.admin-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
+.admin-tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:6px}
+.admin-tile span{font-size:12px;color:var(--muted)}.admin-tile strong{font-size:30px;font-weight:500;letter-spacing:-1px}
+.admin-tile small{font-size:11px;color:var(--muted)}
+.admin-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:12px}
+.admin-card h1{font-size:28px;margin-bottom:10px}.admin-card h2{font-size:15px;font-weight:500;margin-bottom:14px;letter-spacing:0}
+.admin-card p{color:var(--muted);font-size:14px;margin-bottom:16px}
+.admin-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.admin-bars{display:flex;align-items:flex-end;gap:4px;height:160px}
+.admin-bars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;min-width:0}
+.admin-bars i{display:block;width:100%;background:var(--accent);border-radius:3px 3px 0 0}
+.admin-bars small{font-size:9px;color:var(--muted);white-space:nowrap}
+.admin table{width:100%;border-collapse:collapse;font-size:13px}
+.admin th,.admin td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
+.admin th{color:var(--muted);font-weight:400}
+.admin-crashes{list-style:none;padding:0;margin:0}.admin-crashes li{border-top:1px solid var(--border);padding:10px 0;font-size:12px}
+.admin-crashes pre{white-space:pre-wrap;color:var(--muted);margin:6px 0 0;font-size:11px}
+.admin-empty{color:var(--muted);font-size:13px}.admin-note{color:var(--muted);font-size:12px;margin-top:8px}
+@media(max-width:800px){.admin-grid{grid-template-columns:1fr 1fr}.admin-two{grid-template-columns:1fr}}

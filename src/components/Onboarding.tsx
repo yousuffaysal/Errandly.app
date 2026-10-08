@@ -51,13 +51,14 @@ const empty: Profile = { name: "", role: "", work: "", helpWith: [], tone: "", l
 export function Onboarding({ initialName, personas, onFinish }: {
   initialName?: string;
   personas: Persona[];
-  onFinish: (profile: Profile, persona: string) => Promise<void>;
+  onFinish: (profile: Profile, persona: string, shareUsage: boolean) => Promise<void>;
 }) {
   const [profile, setProfile] = useState<Profile>({ ...empty, name: initialName ?? "" });
   const [step, setStep] = useState(0);
   const [input, setInput] = useState(initialName ?? "");
   const [picked, setPicked] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [shareUsage, setShareUsage] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const done = step >= STEPS.length;
   const current = STEPS[step];
@@ -91,7 +92,7 @@ export function Onboarding({ initialName, personas, onFinish }: {
   async function finish(skipped = false) {
     setSaving(true);
     try {
-      await onFinish({ ...profile, completed: true }, skipped ? "ario" : recommendPersona(profile));
+      await onFinish({ ...profile, completed: true }, skipped ? "ario" : recommendPersona(profile), !skipped && shareUsage);
     } finally {
       setSaving(false);
     }
@@ -170,6 +171,13 @@ export function Onboarding({ initialName, personas, onFinish }: {
                   </div>
                 )}
               </div>
+              <label className="ew-share-usage">
+                <input type="checkbox" checked={shareUsage} onChange={(e) => setShareUsage(e.target.checked)} />
+                <span>
+                  Help improve Errandly by sharing anonymous usage counts (how often it’s opened and how many tasks get
+                  done). Never your name, chats or files. You can change this anytime in Settings.
+                </span>
+              </label>
               <div className="ew-actions">
                 <button className="ew-followup ew-approve" disabled={saving} onClick={() => finish()}>
                   {saving ? "Getting things ready…" : "Let’s get started"}

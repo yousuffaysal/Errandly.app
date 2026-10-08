@@ -52,6 +52,7 @@ pub fn run() {
             if settled > 0 {
                 eprintln!("settled {settled} task(s) interrupted by the last shutdown");
             }
+            let _ = storage::usage::bump(&db, storage::usage::Counter::Open);
             app.manage(AppState::new(db, db_path));
             ai::runtime::start(app.handle());
             // The design is drawn at a compact web scale; show it a little larger
@@ -65,6 +66,8 @@ pub fn run() {
             commands::ai_status,
             commands::install_models,
             commands::get_settings,
+            commands::usage_pending,
+            commands::usage_sent,
             commands::save_profile,
             commands::set_active_account,
             commands::save_preferences,

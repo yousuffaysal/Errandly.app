@@ -13,7 +13,9 @@ use crate::error::{AppError, Result};
 pub const BASE_URL: &str = "http://127.0.0.1:11434";
 /// Keep the model in memory between messages; reloading it costs ~30 s on an 8 GB Mac.
 const KEEP_ALIVE: &str = "30m";
-const MAX_CHAT_TOKENS: u32 = 400;
+const CHAT_TEMPERATURE: f32 = 0.6;
+/// Room for a full answer to a real question; small talk stays short by instruction.
+const MAX_CHAT_TOKENS: u32 = 900;
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -62,9 +64,9 @@ pub fn ensure_tls_provider() {
 
 fn connect_error(e: reqwest::Error) -> AppError {
     if e.is_connect() {
-        AppError::Ai("the local AI service isn't running. Start it with `brew services start ollama`.".into())
+        AppError::ai("connection refused")
     } else {
-        AppError::Ai(e.to_string())
+        AppError::ai(e.to_string())
     }
 }
 
@@ -102,6 +104,62 @@ pub async fn status(runtime_bundled: bool) -> AiStatus {
     }
 }
 
+/// Where a reply stops being useful, if it has: a repeated line, a repeated
+/// phrase, or a run-on stretch with no sentence ending. The caller keeps the
+/// text before that point.
+pub fn degenerate_from(text: &str) -> Option<usize> {
+    let cut = repeated_from(text).or_else(|| repeated_phrase_from(text)).or_else(|| run_on_from(text))?;
+    // Never end mid-sentence: back up to the last complete sentence or line.
+    Some(text[..cut].rfind(['.', '!', '?', '\n']).map(|i| i + 1).unwrap_or(cut))
+}
+
+/// The start of the second occurrence of any 8-word phrase.
+fn repeated_phrase_from(text: &str) -> Option<usize> {
+    const N: usize = 8;
+    let words: Vec<(usize, &str)> = text
+        .split_whitespace()
+        .map(|w| (w.as_ptr() as usize - text.as_ptr() as usize, w))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    for win in words.windows(N) {
+        let key: Vec<String> = win.iter().map(|(_, w)| w.to_lowercase()).collect();
+        if !seen.insert(key) {
+            return Some(win[0].0);
+        }
+    }
+    None
+}
+
+/// More than 500 characters since the last sentence ending or line break:
+/// cut back to that last ending.
+fn run_on_from(text: &str) -> Option<usize> {
+    let last_end = text.rfind(['.', '!', '?', '\n', ':']).map(|i| i + 1).unwrap_or(0);
+    (text.len() - last_end > 500).then_some(last_end)
+}
+
+/// If the latest finished paragraph (or list item) repeats an earlier one,
+/// the byte offset where the repetition starts.
+fn repeated_from(text: &str) -> Option<usize> {
+    let norm = |s: &str| {
+        s.trim()
+            .trim_start_matches(|c: char| c.is_ascii_digit() || matches!(c, '.' | ')' | '-' | '*' | '•' | ' '))
+            .replace("**", "")
+            .to_lowercase()
+    };
+    // Only judge complete lines.
+    let done = &text[..text.rfind('\n')?];
+    let mut seen = std::collections::HashSet::new();
+    let mut offset = 0;
+    for line in done.split('\n') {
+        let key = norm(line);
+        if key.chars().count() >= 30 && !seen.insert(key) {
+            return Some(offset);
+        }
+        offset += line.len() + 1;
+    }
+    None
+}
+
 /// Disk used by the shared base model. The four Errandly models reuse its
 /// weights, so this is the whole cost.
 pub async fn models_size() -> Option<u64> {
@@ -137,7 +195,7 @@ pub async fn install(progress: &(dyn Fn(u8, &str) + Sync)) -> Result<()> {
             .map_err(connect_error)?;
         if !resp.status().is_success() {
             let body: Value = resp.json().await.unwrap_or_default();
-            return Err(AppError::Ai(format!(
+            return Err(AppError::ai(format!(
                 "couldn't create {}: {}",
                 p.name,
                 body["error"].as_str().unwrap_or("unknown error")
@@ -157,13 +215,13 @@ async fn pull_base(progress: &(dyn Fn(u8, &str) + Sync)) -> Result<()> {
         .map_err(connect_error)?;
     // The response is newline-delimited JSON status objects.
     let mut buf = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| AppError::Ai(e.to_string()))? {
+    while let Some(chunk) = resp.chunk().await.map_err(|e| AppError::ai(e.to_string()))? {
         buf.extend_from_slice(&chunk);
         while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
             let line: Vec<u8> = buf.drain(..=nl).collect();
             let Ok(v) = serde_json::from_slice::<Value>(&line) else { continue };
             if let Some(err) = v["error"].as_str() {
-                return Err(AppError::Ai(format!("download failed: {err}")));
+                return Err(AppError::ai(format!("download failed: {err}")));
             }
             if let (Some(done), Some(total)) = (v["completed"].as_u64(), v["total"].as_u64()) {
                 if total > 0 {
@@ -218,7 +276,15 @@ impl Ollama {
                 "model": self.model,
                 "stream": true,
                 "keep_alive": KEEP_ALIVE,
-                "options": { "temperature": self.temperature, "num_predict": MAX_CHAT_TOKENS },
+                // Conversation needs natural sampling: greedy decoding makes
+                // small models loop, and a strong repeat penalty makes them
+                // ramble. Plans and numbers use precise() instead.
+                "options": {
+                    "temperature": CHAT_TEMPERATURE,
+                    "top_p": 0.9,
+                    "num_predict": MAX_CHAT_TOKENS,
+                    "repeat_penalty": 1.05
+                },
                 "messages": messages,
             }))
             .send()
@@ -226,19 +292,26 @@ impl Ollama {
             .map_err(connect_error)?;
         if !resp.status().is_success() {
             let body: Value = resp.json().await.unwrap_or_default();
-            return Err(AppError::Ai(body["error"].as_str().unwrap_or("request failed").to_string()));
+            return Err(AppError::ai(body["error"].as_str().unwrap_or("request failed")));
         }
         let (mut text, mut buf) = (String::new(), Vec::new());
-        while let Some(chunk) = resp.chunk().await.map_err(|e| AppError::Ai(e.to_string()))? {
+        while let Some(chunk) = resp.chunk().await.map_err(|e| AppError::ai(e.to_string()))? {
             buf.extend_from_slice(&chunk);
             while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
                 let line: Vec<u8> = buf.drain(..=nl).collect();
                 let Ok(v) = serde_json::from_slice::<Value>(&line) else { continue };
                 if let Some(err) = v["error"].as_str() {
-                    return Err(AppError::Ai(err.to_string()));
+                    return Err(AppError::ai(err));
                 }
                 if let Some(piece) = v["message"]["content"].as_str() {
                     text.push_str(piece);
+                    // Small models sometimes start repeating themselves; stop
+                    // at the first repeated paragraph and keep what came before.
+                    if let Some(cut) = degenerate_from(&text) {
+                        text.truncate(cut);
+                        on_text(&text);
+                        return Ok(text.trim().to_string());
+                    }
                     on_text(&text);
                 }
             }
@@ -276,16 +349,16 @@ impl Llm for Ollama {
             .await
             .map_err(connect_error)?;
         let status = resp.status();
-        let payload: Value = resp.json().await.map_err(|e| AppError::Ai(e.to_string()))?;
+        let payload: Value = resp.json().await.map_err(|e| AppError::ai(e.to_string()))?;
         if !status.is_success() {
             let msg = payload["error"].as_str().unwrap_or("request failed");
-            return Err(AppError::Ai(format!("{msg} (HTTP {status})")));
+            return Err(AppError::ai(format!("{msg} (HTTP {status})")));
         }
         let content = payload["message"]["content"]
             .as_str()
-            .ok_or_else(|| AppError::Ai("empty response from model".into()))?;
+            .ok_or_else(|| AppError::ai("empty response"))?;
         serde_json::from_str(content)
-            .map_err(|e| AppError::Ai(format!("model returned invalid JSON: {e}")))
+            .map_err(|e| AppError::ai(format!("model returned invalid JSON: {e}")))
     }
 }
 
@@ -321,5 +394,30 @@ mod tls {
     fn clients_can_be_created() {
         let s = tauri::async_runtime::block_on(super::status(false));
         let _ = s.reachable;
+    }
+}
+
+#[cfg(test)]
+mod repetition {
+    use super::{degenerate_from, repeated_from};
+
+    #[test]
+    fn stops_at_the_first_repeated_paragraph() {
+        let looped = "Tips:\n1. **Empty the Trash** to free space quickly.\n2. Remove large files you no longer need.\n3. **Empty the Trash** to free space quickly.\n";
+        let cut = repeated_from(looped).unwrap();
+        assert!(looped[..cut].ends_with("no longer need.\n"));
+        assert_eq!(repeated_from("1. Short\n2. Short\n"), None, "short lines may repeat");
+        assert_eq!(repeated_from("A unique first paragraph that is long enough.\nAnother different paragraph that is long.\n"), None);
+    }
+
+    #[test]
+    fn stops_rambling_and_repeated_phrases() {
+        let good = "Back up first. Then empty the Trash and remove old installers.";
+        assert_eq!(degenerate_from(good), None);
+        let salad = format!("Back up first. {}", "word ".repeat(150));
+        assert_eq!(&salad[..degenerate_from(&salad).unwrap()], "Back up first.");
+        let phrase = "Use Disk Utility to find the large files on your Mac today. Also use Disk Utility to find the large files on your Mac today.";
+        let cut = degenerate_from(phrase).unwrap();
+        assert!(phrase[..cut].trim_end().ends_with("on your Mac today."));
     }
 }

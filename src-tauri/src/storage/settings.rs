@@ -39,6 +39,8 @@ pub struct Preferences {
     pub crash_reports: bool,
     /// Check GitHub for signed updates shortly after launch.
     pub auto_update: bool,
+    /// Opt-in: share anonymous daily counts (opens, messages, tasks).
+    pub usage_stats: bool,
 }
 
 impl Default for Preferences {
@@ -50,6 +52,7 @@ impl Default for Preferences {
             motion: "system".into(),
             crash_reports: false,
             auto_update: true,
+            usage_stats: false,
         }
     }
 }
@@ -150,6 +153,7 @@ pub fn save_preferences(db: &Db, prefs: &Preferences) -> Result<Preferences> {
         motion: pick(&prefs.motion, &["system", "reduced"])?,
         crash_reports: prefs.crash_reports,
         auto_update: prefs.auto_update,
+        usage_stats: prefs.usage_stats,
     };
     put(db, "preferences", &clean)?;
     Ok(clean)

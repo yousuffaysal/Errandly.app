@@ -113,6 +113,86 @@ fn with_style(system: &str, style: &str) -> String {
     }
 }
 
+// ---- The fast path ---------------------------------------------------------
+// Most organize requests are "sort this by type" or just "tidy this up". Those
+// need no judgement, so code sorts them instantly and exactly, with each
+// model's own touch. The model is used only when the request asks for
+// something only it can judge ("split into Business and Personal").
+
+/// Words that carry no sorting criteria of their own.
+const GENERIC_WORDS: &[&str] = &[
+    "organize", "organise", "sort", "tidy", "clean", "cleanup", "declutter", "arrange", "up", "out", "my", "this",
+    "the", "a", "an", "folder", "folders", "files", "file", "downloads", "desktop", "documents", "please", "help",
+    "me", "can", "you", "could", "would", "in", "it", "into", "order", "put", "things", "stuff", "everything", "all",
+    "here", "for", "and", "by", "type", "types", "kind", "kinds", "extension", "extensions", "format", "formats",
+    "file-type", "neatly", "nicely", "quickly", "now", "just", "bit", "little", "mess", "messy",
+];
+
+/// True when the request asks for nothing beyond tidying or sorting by type.
+pub fn is_simple_request(request: &str) -> bool {
+    let lower = request.to_lowercase();
+    lower
+        .split(|c: char| !c.is_alphanumeric() && c != '-')
+        .filter(|w| !w.is_empty())
+        .all(|w| GENERIC_WORDS.contains(&w))
+}
+
+/// The folder a file of this kind goes to, or None to leave it in place.
+fn kind_folder(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "document" | "text" => "Documents",
+        "spreadsheet" => "Spreadsheets",
+        "presentation" => "Presentations",
+        "image" => "Images",
+        "graphic design" => "Design",
+        "video" => "Videos",
+        "audio" => "Audio",
+        "archive" => "Archives",
+        "installer" => "Installers",
+        "code" => "Code",
+        "data" => "Data",
+        _ => return None,
+    })
+}
+
+/// Name-based folders for a model's speciality, checked before file kind.
+fn persona_folder(persona: &str, name: &str) -> Option<&'static str> {
+    let n = name.to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
+    match persona {
+        "shadow" if has(&[
+            "passport", "bank", "statement", "tax", "nid", "national id", "id card", "license", "licence", "payslip",
+            "salary", "ssn", "contract", "medical", "insurance", "password",
+        ]) => Some("Private"),
+        "howen-2" if has(&["invoice", "inv-", "inv_", "bill"]) => Some("Invoices"),
+        "howen-2" if has(&["receipt"]) => Some("Receipts"),
+        "howen-2" if has(&["contract", "agreement", "proposal", "quote", "quotation"]) => Some("Contracts"),
+        "suf-4" if has(&["lecture", "slides", "lec-", "lec_"]) => Some("Lectures"),
+        "suf-4" if has(&["assignment", "homework", "hw-", "hw_", "coursework"]) => Some("Assignments"),
+        "suf-4" if has(&["paper", "thesis", "journal", "article"]) => Some("Papers"),
+        _ => None,
+    }
+}
+
+/// Sorts by file kind (plus the model's speciality) without calling the model.
+pub fn plan_simple(root: &Path, files: &[FileEntry], persona: &str) -> Result<Planned> {
+    let mut assignment = HashMap::new();
+    for (i, f) in files.iter().enumerate() {
+        let folder = persona_folder(persona, &f.name).or_else(|| kind_folder(file_kind(&f.extension)));
+        if let Some(folder) = folder {
+            assignment.insert(i, folder.to_string());
+        }
+    }
+    let (operations, left_in_place) = build_operations(root, files, &assignment)?;
+    let mut categories: Vec<String> = assignment.values().cloned().collect();
+    categories.sort();
+    categories.dedup();
+    Ok(Planned {
+        meta: PlanMeta { categories, scanned_files: files.len(), left_in_place, rejected_outputs: 0 },
+        operations,
+    })
+}
+
 /// Deterministically converts file → folder assignments into operations.
 /// Returns the operations and the names of files that will not move.
 pub fn build_operations(
@@ -409,6 +489,43 @@ mod tests {
             p.operations,
             vec![Operation::MoveFile { from: root.join("a.pdf"), to: root.join("Docs/a (1).pdf") }]
         );
+    }
+
+    #[test]
+    fn simple_requests_are_recognized() {
+        for r in ["Organize my Downloads folder", "sort this by file type", "Help me organize this folder by file type.", "tidy up please", "clean up my desktop"] {
+            assert!(is_simple_request(r), "{r}");
+        }
+        for r in ["Split into Business and Personal", "sort by client name", "group my lecture notes by course"] {
+            assert!(!is_simple_request(r), "{r}");
+        }
+    }
+
+    #[test]
+    fn simple_plans_sort_by_kind_with_each_models_touch() {
+        let (_d, root) = folder(&["passport scan.pdf", "Invoice_Oct.pdf", "IMG_1.JPG", "Zoom.pkg", "budget.xlsx", "README", "lecture-05.pdf"]);
+        let files = scan_folder(&root).unwrap();
+        let dest = |p: &Planned, name: &str| {
+            p.operations.iter().find_map(|o| match o {
+                Operation::MoveFile { from, to } if from.ends_with(name) => {
+                    Some(to.parent().unwrap().file_name().unwrap().to_string_lossy().into_owned())
+                }
+                _ => None,
+            })
+        };
+        let ario = plan_simple(&root, &files, "ario").unwrap();
+        assert_eq!(dest(&ario, "IMG_1.JPG").as_deref(), Some("Images"));
+        assert_eq!(dest(&ario, "Zoom.pkg").as_deref(), Some("Installers"));
+        assert_eq!(dest(&ario, "budget.xlsx").as_deref(), Some("Spreadsheets"));
+        assert_eq!(dest(&ario, "passport scan.pdf").as_deref(), Some("Documents"));
+        assert_eq!(ario.meta.left_in_place, vec!["README"], "no extension: left alone");
+
+        assert_eq!(dest(&plan_simple(&root, &files, "shadow").unwrap(), "passport scan.pdf").as_deref(), Some("Private"));
+        assert_eq!(dest(&plan_simple(&root, &files, "howen-2").unwrap(), "Invoice_Oct.pdf").as_deref(), Some("Invoices"));
+        assert_eq!(dest(&plan_simple(&root, &files, "suf-4").unwrap(), "lecture-05.pdf").as_deref(), Some("Lectures"));
+        for op in &ario.operations {
+            validate_operation(&root, op).unwrap();
+        }
     }
 
     #[test]

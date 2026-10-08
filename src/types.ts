@@ -137,6 +137,7 @@ export interface Preferences {
   motion: Motion;
   crashReports: boolean;
   autoUpdate: boolean;
+  usageStats: boolean;
 }
 
 export interface SettingsView {

@@ -24,8 +24,8 @@ export function ModelSetup({ ai, onDone }: { ai: AiStatus; onDone: () => void })
       </div>
     ) : (
       <div className="ew-setup-card">
-        <strong>Errandly’s local AI isn’t running.</strong>
-        <span>This build doesn’t include the AI runtime. Start Ollama with “brew services start ollama”.</span>
+        <strong>Errandly’s AI engine isn’t running.</strong>
+        <span>Quit and reopen Errandly. If this keeps happening, download Errandly again from the website.</span>
       </div>
     );
   }

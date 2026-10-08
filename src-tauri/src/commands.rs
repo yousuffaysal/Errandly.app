@@ -20,6 +20,7 @@ use crate::security::permissions::canonical_root;
 use crate::storage::conversations::{self, Conversation, Message, Role};
 use crate::storage::projects::{self, Project};
 use crate::storage::settings::{self, Preferences, Profile};
+use crate::storage::usage::{self, Counter, DayCounts};
 use crate::storage::repo::{self, Grant, StepStatus, TaskStatus, TaskView};
 use crate::storage::sqlite::Db;
 use crate::agents;
@@ -194,6 +195,10 @@ pub fn save_profile(state: State<'_, AppState>, profile: Profile) -> Result<Prof
 #[tauri::command]
 pub fn save_preferences(app: AppHandle, state: State<'_, AppState>, preferences: Preferences) -> Result<Preferences> {
     let saved = settings::save_preferences(&state.db, &preferences)?;
+    if !saved.usage_stats {
+        // Turning sharing off also forgets anything counted but not yet sent.
+        usage::clear(&state.db)?;
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_zoom(saved.zoom());
     }
@@ -306,6 +311,26 @@ pub fn delete_all_conversations(state: State<'_, AppState>) -> Result<()> {
         return Err(AppError::Invalid("wait for Errandly to finish what it's doing first".into()));
     }
     conversations::delete_all(&state.db, &settings::owner(&state.db)?)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageReport {
+    install_id: String,
+    version: &'static str,
+    days: Vec<DayCounts>,
+}
+
+/// Anonymous daily counts waiting to be sent (empty unless the user opted in).
+#[tauri::command]
+pub fn usage_pending(state: State<'_, AppState>) -> Result<UsageReport> {
+    let days = if settings::preferences(&state.db)?.usage_stats { usage::pending(&state.db)? } else { vec![] };
+    Ok(UsageReport { install_id: usage::install_id(&state.db)?, version: env!("CARGO_PKG_VERSION"), days })
+}
+
+#[tauri::command]
+pub fn usage_sent(state: State<'_, AppState>, day: String) -> Result<()> {
+    usage::mark_sent(&state.db, &day)
 }
 
 // ---- projects -------------------------------------------------------------
@@ -486,6 +511,10 @@ pub async fn send_message(
         reply.task_id.as_deref(),
         reply.card.as_ref(),
     )?;
+    usage::bump(&state.db, Counter::Message)?;
+    if reply.card.is_some() {
+        usage::bump(&state.db, Counter::Task)?;
+    }
     conversation_view(&state.db, &conversation_id)
 }
 
@@ -531,7 +560,7 @@ async fn respond(
     on_reply: &(dyn Fn(&str) + Sync),
 ) -> Result<Reply> {
     emit(0, "Understanding your request".into());
-    let intent = router::route(&llm.precise(), text).await?;
+    let intent = router::route(&llm.precise(), text, conv.folder.is_some()).await?;
     if cancel.load(Ordering::Relaxed) {
         return Err(AppError::Cancelled);
     }
@@ -552,7 +581,17 @@ async fn respond(
                 persona.voice,
                 router::CHAT_RULES
             );
-            let reply = llm.chat_stream(&system, &history, cancel, on_reply).await?;
+            // Replies start with the answer, not "Hi! I'm Ario…", unless the
+            // user asked who they're talking to.
+            let keep_intro = router::asks_identity(text);
+            let clean = |t: &str| if keep_intro { Some(t.to_string()) } else { router::strip_intro(t, persona.name) };
+            let streamed = |t: &str| {
+                if let Some(c) = clean(t) {
+                    on_reply(&c);
+                }
+            };
+            let raw = llm.chat_stream(&system, &history, cancel, &streamed).await?;
+            let reply = clean(&raw).filter(|c| !c.is_empty()).unwrap_or(raw);
             if reply.is_empty() {
                 return Err(if cancel.load(Ordering::Relaxed) { AppError::Cancelled } else { AppError::Ai("the model gave an empty reply".into()) });
             }
@@ -650,7 +689,15 @@ async fn respond(
                 Progress::ChoosingFolders => emit(1, "Choosing the right folders".into()),
                 Progress::Sorting { done, total } => emit(2, format!("Sorting files ({done} of {total})")),
             };
-            match planner::plan_organize(&llm.precise(), &instruction, &root, &files, persona.organize_style, cancel, &progress).await {
+            // Simple requests are sorted instantly by code; the model only
+            // handles requests that need judgement.
+            let planned = if planner::is_simple_request(text) && conv.instructions.trim().is_empty() {
+                emit(2, "Sorting files".into());
+                planner::plan_simple(&root, &files, persona.id)
+            } else {
+                planner::plan_organize(&llm.precise(), &instruction, &root, &files, persona.organize_style, cancel, &progress).await
+            };
+            match planned {
                 Ok(p) => {
                     let meta = serde_json::to_string(&p.meta).expect("plan meta serializes");
                     repo::save_plan(db, &task_id, &meta, &p.operations)?;
@@ -799,6 +846,9 @@ pub async fn approve_task(state: State<'_, AppState>, task_id: String) -> Result
     };
     if let Some(conv) = &task.conversation_id {
         conversations::add_message(&state.db, conv, Role::Assistant, &note, None)?;
+    }
+    if matches!(task.status, TaskStatus::Completed | TaskStatus::PartiallyCompleted) {
+        usage::bump(&state.db, Counter::Task)?;
     }
     outcome?;
     Ok(task)
@@ -974,6 +1024,38 @@ mod live {
             )).unwrap().text;
             println!("> {q}\n< {reply}");
             conversations::add_message(&db, &conv.id, Role::Assistant, &reply, None).unwrap();
+        }
+    }
+
+    /// Real questions users ask: useful, no unrequested intros, no model names. `pnpm test:ollama`.
+    #[test]
+    #[ignore]
+    fn live_usefulness() {
+        let db = Db::open_in_memory().unwrap();
+        for persona_id in ["ario", "suf-4"] {
+            let conv = conversations::create(&db, "default", persona_id).unwrap();
+            for q in [
+                "hi",
+                "what model are you? are you chatgpt or something?",
+                "Write a short polite email to my professor asking for a 2-day extension on my assignment.",
+                "Explain bayesian regression in simple words.",
+                "My Mac is almost full. What should I clean up first?",
+            ] {
+                conversations::add_message(&db, &conv.id, Role::User, q, None).unwrap();
+                let c = conversations::get(&db, &conv.id).unwrap();
+                let t = std::time::Instant::now();
+                let r = tauri::async_runtime::block_on(respond(
+                    &db, &c, q, &Ollama::for_persona(persona_id), personas::get(persona_id), &AtomicBool::new(false),
+                    &|_, _| {}, &|_| {},
+                ))
+                .unwrap();
+                println!("\n[{persona_id}] > {q}\n< {} ({:.1?})", r.text, t.elapsed());
+                let lower = r.text.to_lowercase();
+                for banned in ["phi", "microsoft", "ollama", "llama", "openai", "gpt-"] {
+                    assert!(!lower.split(|c: char| !c.is_alphanumeric() && c != '-').any(|w| w.starts_with(banned)), "mentions {banned}: {}", r.text);
+                }
+                conversations::add_message(&db, &conv.id, Role::Assistant, &r.text, None).unwrap();
+            }
         }
     }
 }
