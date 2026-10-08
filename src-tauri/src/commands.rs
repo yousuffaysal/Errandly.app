@@ -26,6 +26,10 @@ use crate::tools::files::scan_folder;
 const MAX_MESSAGE_CHARS: usize = 2000;
 const MAX_INSTRUCTIONS_CHARS: usize = 2000;
 pub const PROGRESS_EVENT: &str = "errandly://progress";
+pub const REPLY_EVENT: &str = "errandly://reply";
+/// How many recent messages a chat reply can see.
+const CHAT_HISTORY: usize = 10;
+const MAX_HISTORY_CHARS: usize = 1500;
 pub const INSTALL_EVENT: &str = "errandly://install";
 
 pub struct AppState {
@@ -72,6 +76,13 @@ pub struct ConversationView {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+struct ReplyEvent {
+    conversation_id: String,
+    text: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct ProgressEvent {
     conversation_id: String,
     stage: u8,
@@ -107,6 +118,12 @@ pub async fn install_models(app: AppHandle, state: State<'_, AppState>) -> Resul
     let result = ollama::install(&emit).await;
     state.finish("install");
     result
+}
+
+/// Loads a model into memory so the first message doesn't wait for it.
+#[tauri::command]
+pub async fn warm_up(persona: String) -> Result<()> {
+    Ollama::for_persona(&persona).warm_up().await
 }
 
 // ---- projects -------------------------------------------------------------
@@ -249,7 +266,11 @@ pub async fn send_message(
         let _ = app.emit(PROGRESS_EVENT, ProgressEvent { conversation_id: conversation_id.clone(), stage, label });
     };
     let persona = personas::get(&conv.persona);
-    let result = respond(&state.db, &conv, &text, &Ollama::for_persona(persona.id), persona, &cancel, &emit).await;
+    let reply = |text: &str| {
+        let _ = app.emit(REPLY_EVENT, ReplyEvent { conversation_id: conversation_id.clone(), text: text.to_string() });
+    };
+    let llm = Ollama::for_persona(persona.id);
+    let result = respond(&state.db, &conv, &text, &llm, persona, &cancel, &emit, &reply).await;
     state.finish(&conversation_id);
 
     let (reply, task_id) = match result {
@@ -269,9 +290,10 @@ async fn respond(
     persona: &Persona,
     cancel: &AtomicBool,
     emit: &(dyn Fn(u8, String) + Sync),
+    on_reply: &(dyn Fn(&str) + Sync),
 ) -> Result<(String, Option<String>)> {
     emit(0, "Understanding your request".into());
-    let intent = router::route(llm, persona.voice, text).await?;
+    let intent = router::route(&llm.precise(), text).await?;
     if cancel.load(Ordering::Relaxed) {
         return Err(AppError::Cancelled);
     }
@@ -279,7 +301,22 @@ async fn respond(
     let next_phase = "is coming in the next phase of Errandly. Right now I can organize the files in a folder \
                       you add to this conversation. Try “Sort this folder by file type.”";
     match intent {
-        Intent::Chat(reply) => Ok((reply, None)),
+        Intent::Chat => {
+            // Recent messages, oldest first; the current message is already saved.
+            let all = conversations::messages(db, &conv.id)?;
+            let recent: Vec<(String, String)> = all
+                .iter()
+                .skip(all.len().saturating_sub(CHAT_HISTORY))
+                .map(|m| (m.role.clone(), m.text.chars().take(MAX_HISTORY_CHARS).collect()))
+                .collect();
+            let history: Vec<(&str, &str)> = recent.iter().map(|(r, t)| (r.as_str(), t.as_str())).collect();
+            let system = format!("{} You run locally on the user's Mac as part of Errandly. {}", persona.voice, router::CHAT_RULES);
+            let reply = llm.chat_stream(&system, &history, cancel, on_reply).await?;
+            if reply.is_empty() {
+                return Err(if cancel.load(Ordering::Relaxed) { AppError::Cancelled } else { AppError::Ai("the model gave an empty reply".into()) });
+            }
+            Ok((reply, None))
+        }
         Intent::SummarizeDocuments => Ok((format!("Turning documents into notes {next_phase}"), None)),
         Intent::AnalyzeSpreadsheet => Ok((format!("Building reports from spreadsheets {next_phase}"), None)),
         Intent::OrganizeFiles => {
@@ -487,7 +524,7 @@ mod live {
             let conv = conversations::get(&db, conv_id).unwrap();
             let persona = personas::get(&conv.persona);
             let t = std::time::Instant::now();
-            let r = tauri::async_runtime::block_on(respond(&db, &conv, text, &Ollama::for_persona(persona.id), persona, &cancel, &log)).unwrap();
+            let r = tauri::async_runtime::block_on(respond(&db, &conv, text, &Ollama::for_persona(persona.id), persona, &cancel, &log, &|_| {})).unwrap();
             println!("> [{}] {text}\n< {} ({:.1?})\n", persona.name, r.0, t.elapsed());
             r
         };

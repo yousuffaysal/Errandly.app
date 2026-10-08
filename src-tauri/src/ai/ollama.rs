@@ -11,6 +11,9 @@ use super::Llm;
 use crate::error::{AppError, Result};
 
 pub const BASE_URL: &str = "http://127.0.0.1:11434";
+/// Keep the model in memory between messages; reloading it costs ~30 s on an 8 GB Mac.
+const KEEP_ALIVE: &str = "30m";
+const MAX_CHAT_TOKENS: u32 = 400;
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -161,6 +164,66 @@ impl Ollama {
         Self { client: client(Duration::from_secs(300)), model: p.model(), temperature: p.temperature }
     }
 
+    /// Loads the model into memory ahead of the first message.
+    pub async fn warm_up(&self) -> Result<()> {
+        self.client
+            .post(format!("{BASE_URL}/api/generate"))
+            .json(&json!({ "model": self.model, "keep_alive": KEEP_ALIVE }))
+            .send()
+            .await
+            .map_err(connect_error)?;
+        Ok(())
+    }
+
+    /// A free-text chat reply, streamed: `on_text` receives the reply so far
+    /// after every chunk. Stops early (keeping what was written) if `cancel` is set.
+    pub async fn chat_stream(
+        &self,
+        system: &str,
+        history: &[(&str, &str)],
+        cancel: &std::sync::atomic::AtomicBool,
+        on_text: &(dyn Fn(&str) + Sync),
+    ) -> Result<String> {
+        let mut messages = vec![json!({ "role": "system", "content": system })];
+        messages.extend(history.iter().map(|(role, content)| json!({ "role": role, "content": content })));
+        let mut resp = self
+            .client
+            .post(format!("{BASE_URL}/api/chat"))
+            .json(&json!({
+                "model": self.model,
+                "stream": true,
+                "keep_alive": KEEP_ALIVE,
+                "options": { "temperature": self.temperature, "num_predict": MAX_CHAT_TOKENS },
+                "messages": messages,
+            }))
+            .send()
+            .await
+            .map_err(connect_error)?;
+        if !resp.status().is_success() {
+            let body: Value = resp.json().await.unwrap_or_default();
+            return Err(AppError::Ai(body["error"].as_str().unwrap_or("request failed").to_string()));
+        }
+        let (mut text, mut buf) = (String::new(), Vec::new());
+        while let Some(chunk) = resp.chunk().await.map_err(|e| AppError::Ai(e.to_string()))? {
+            buf.extend_from_slice(&chunk);
+            while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
+                let line: Vec<u8> = buf.drain(..=nl).collect();
+                let Ok(v) = serde_json::from_slice::<Value>(&line) else { continue };
+                if let Some(err) = v["error"].as_str() {
+                    return Err(AppError::Ai(err.to_string()));
+                }
+                if let Some(piece) = v["message"]["content"].as_str() {
+                    text.push_str(piece);
+                    on_text(&text);
+                }
+            }
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+        }
+        Ok(text.trim().to_string())
+    }
+
     /// The same model with sampling turned off, for plans that must be repeatable.
     pub fn precise(&self) -> Self {
         Self { temperature: 0.0, ..self.clone() }
@@ -173,6 +236,7 @@ impl Llm for Ollama {
             "model": self.model,
             "stream": false,
             "format": schema,
+            "keep_alive": KEEP_ALIVE,
             "options": { "temperature": self.temperature },
             "messages": [
                 { "role": "system", "content": system },

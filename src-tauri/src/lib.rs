@@ -44,6 +44,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::ai_status,
             commands::install_models,
+            commands::warm_up,
             commands::list_projects,
             commands::create_project,
             commands::update_project,
