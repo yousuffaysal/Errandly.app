@@ -51,6 +51,7 @@ export interface Project {
   name: string;
   description: string;
   conversationCount: number;
+  isDefault: boolean;
   createdAt: string;
 }
 
@@ -72,6 +73,7 @@ export interface Message {
   role: "user" | "assistant";
   text: string;
   taskId: string | null;
+  card: ResultCard | null;
   createdAt: string;
 }
 
@@ -105,9 +107,99 @@ export interface AiStatus {
   reachable: boolean;
   baseInstalled: boolean;
   personas: Persona[];
+  runtimeBundled: boolean;
 }
 
 export interface InstallEvent {
   percent: number;
   label: string;
 }
+
+export interface Profile {
+  name: string;
+  role: string;
+  work: string;
+  helpWith: string[];
+  tone: string;
+  language: string;
+  notes: string;
+  completed: boolean;
+}
+
+export type TextSize = "small" | "medium" | "large";
+export type Width = "narrow" | "medium" | "wide";
+export type Motion = "system" | "reduced";
+
+export interface Preferences {
+  defaultPersona: string;
+  textSize: TextSize;
+  width: Width;
+  motion: Motion;
+  crashReports: boolean;
+  autoUpdate: boolean;
+}
+
+export interface SettingsView {
+  profile: Profile;
+  preferences: Preferences;
+  version: string;
+}
+
+export interface StorageReport {
+  database: number;
+  models: number | null;
+  cache: number;
+  available: number | null;
+  dataDir: string;
+}
+
+export interface Grant {
+  id: string;
+  path: string;
+  createdAt: string;
+}
+
+export interface DocSummary {
+  name: string;
+  summary: string;
+  keyPoints: string[];
+  chars: number;
+  truncated: boolean;
+  flagged: boolean;
+}
+
+export interface DocumentsCard {
+  type: "documents";
+  folder: string;
+  documents: DocSummary[];
+  overview: string | null;
+  unreadable: [string, string][];
+}
+
+export interface SheetGroup {
+  name: string;
+  total: number;
+  rows: number;
+  share: number;
+}
+
+export interface SpreadsheetCard {
+  type: "spreadsheet";
+  file: string;
+  sheet: string | null;
+  title: string;
+  insights: string[];
+  rejectedInsights: number;
+  analysis: {
+    rows: number;
+    valueColumn: string | null;
+    groupColumn: string | null;
+    total: number | null;
+    groups: SheetGroup[];
+    otherGroups: number;
+    skippedRows: number;
+    numeric: { name: string; count: number; sum: number; mean: number; min: number; max: number }[];
+  };
+}
+
+export type ResultCard = DocumentsCard | SpreadsheetCard;

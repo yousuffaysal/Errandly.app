@@ -26,6 +26,13 @@ Phi-4-mini-instruct — Copyright (c) Microsoft Corporation. Licensed under the 
 
 Before release, confirm the licence text against the model card you ship.
 
+## Bundled AI runtime
+
+Errandly ships **Ollama** (MIT License, Copyright (c) Ollama) and its
+**llama.cpp** runner (MIT License, Copyright (c) the ggml authors) to run models
+on the Mac. Their licence files, and those of their dependencies, are included
+in the app at `Contents/Resources/runtime/`.
+
 ## Software
 
 Tauri, React, Supabase JS, lucide-react, rusqlite (SQLite) and the other dependencies

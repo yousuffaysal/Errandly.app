@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Errandly runs with the full hardened runtime and needs no exceptions:
+     the webview's JavaScript runs in Apple's own WebKit processes, and the AI
+     runtime is a separate, separately signed helper (scripts/sign-runtime.sh). -->
+<dict/>
+</plist>

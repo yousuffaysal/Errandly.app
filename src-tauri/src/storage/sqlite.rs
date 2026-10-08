@@ -86,7 +86,34 @@ ALTER TABLE conversations ADD COLUMN persona TEXT NOT NULL DEFAULT 'arip';
 -- Arip was renamed to Ario. Unknown persona ids also fall back to Ario in code.
 UPDATE conversations SET persona = 'ario' WHERE persona = 'arip';
 UPDATE tasks SET model_id = 'Ario' WHERE model_id = 'Arip';
+"#, r#"
+-- Preferences and the user's profile (PRD §15.2 application_settings).
+CREATE TABLE settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+"#, r#"
+-- Projects (and so conversations) belong to whoever is signed in, or to
+-- 'local' when nobody is. Each owner has one default "Personal" project.
+ALTER TABLE workspaces ADD COLUMN owner TEXT NOT NULL DEFAULT 'local';
+ALTER TABLE workspaces ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
+UPDATE workspaces SET is_default = 1 WHERE id = 'default';
+CREATE INDEX workspaces_by_owner ON workspaces (owner);
+"#, r#"
+-- Results shown as cards in the chat (document summaries, spreadsheet reports), as JSON.
+ALTER TABLE messages ADD COLUMN card TEXT;
 "#];
+
+/// The database holds chats, the profile and the sign-in session, so only this
+/// macOS user may read it (0700 folder, 0600 file).
+fn restrict_to_owner(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+}
 
 pub struct Db {
     conn: Mutex<Connection>,
@@ -98,6 +125,7 @@ impl Db {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
+        restrict_to_owner(path);
         conn.pragma_update(None, "journal_mode", "WAL")?;
         Self::init(conn)
     }

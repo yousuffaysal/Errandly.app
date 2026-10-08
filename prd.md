@@ -1,10 +1,10 @@
 # PRODUCT REQUIREMENTS DOCUMENT (PRD)
-# ACTIONDESK AI
+# ERRANDLY
 ### A Local-First, Agentic AI Desktop Assistant
 
 **Version:** 2.0 — Startup Edition  
 **Company:** Foxmen Studio  
-**Product Name:** ActionDesk AI (Temporary Name)  
+**Product Name:** Errandly  
 **Founder:** Foxmen Studio  
 **Initial Platform:** macOS (Apple Silicon)  
 **Future Platforms:** Windows and Linux  
@@ -23,9 +23,9 @@
 
 ## 1.1 Product Overview
 
-ActionDesk AI is an intelligent, agentic desktop application that allows users to automate everyday computer tasks using natural-language instructions.
+Errandly is an intelligent, agentic desktop application that allows users to automate everyday computer tasks using natural-language instructions.
 
-Unlike conventional AI chatbots, which primarily generate text responses, ActionDesk AI will perform actual tasks on a user's computer.
+Unlike conventional AI chatbots, which primarily generate text responses, Errandly will perform actual tasks on a user's computer.
 
 The application will combine:
 
@@ -41,21 +41,21 @@ The application will combine:
 
 **The entire core application will run on the user's own computer, utilizing their own processing power, memory, and storage.**
 
-ActionDesk AI will not require Foxmen Studio to maintain expensive cloud storage infrastructure, host user documents, or pay for AI inference on behalf of users.
+Errandly will not require Foxmen Studio to maintain expensive cloud storage infrastructure, host user documents, or pay for AI inference on behalf of users.
 
 The objective is to develop an accessible desktop AI assistant that delivers practical automation without requiring users to purchase expensive AI subscriptions.
 
 ### Core Product Statement
 
-> **ActionDesk AI is your personal AI employee. It runs on your computer, uses your own storage, and completes your work without requiring a paid AI subscription.**
+> **Errandly is your personal AI employee. It runs on your computer, uses your own storage, and completes your work without requiring a paid AI subscription.**
 
 ## 1.2 Example User Experience
 
-A business owner opens ActionDesk AI and enters:
+A business owner opens Errandly and enters:
 
 "Analyze all invoices in my October folder, calculate my total expenses, organize the invoices by category, and generate an Excel report."
 
-ActionDesk AI will:
+Errandly will:
 
 1. Understand the instruction using its local AI model.
 2. Request permission to access the selected folder.
@@ -114,7 +114,7 @@ All user-generated and application-specific data must be stored locally.
 
 **Requirement ID: CORE-002**
 
-ActionDesk AI must not depend on a continuously running backend server for ordinary use.
+Errandly must not depend on a continuously running backend server for ordinary use.
 
 The core application should operate as:
 
@@ -123,7 +123,7 @@ The core application should operate as:
                  |
                  v
        +--------------------+
-       |    ActionDesk AI   |
+       |    Errandly   |
        |   Desktop Software |
        +--------------------+
                  |
@@ -170,7 +170,7 @@ Optional online services, such as model downloads, software updates, payments, a
 
 Users must be able to perform core AI tasks without purchasing OpenAI, Anthropic, Grok, or other cloud AI API credits.
 
-ActionDesk AI will use locally executed models as the default intelligence engine.
+Errandly will use locally executed models as the default intelligence engine.
 
 Users may optionally connect third-party AI providers if they want additional capabilities.
 
@@ -193,7 +193,7 @@ Users must maintain control over:
 
 Users must be able to export or delete their application data.
 
-Uninstalling ActionDesk AI must not automatically delete unrelated personal files or generated business documents.
+Uninstalling Errandly must not automatically delete unrelated personal files or generated business documents.
 
 ## 2.5 Offline-First Operation
 
@@ -337,7 +337,7 @@ Reports/
     September_Report.pdf
 ```
 
-No financial records are stored on ActionDesk AI's developer servers.
+No financial records are stored on Errandly's developer servers.
 
 ---
 
@@ -460,7 +460,7 @@ These exclusions protect the startup's budget and reduce technical and security 
 
 ## 6.1 Architecture Overview
 
-ActionDesk AI will be a standalone desktop application.
+Errandly will be a standalone desktop application.
 
 Its architecture will contain six principal components:
 
@@ -478,7 +478,7 @@ Its architecture will contain six principal components:
 │                 USER'S MAC                   │
 │                                              │
 │  ┌────────────────────────────────────────┐  │
-│  │            ACTIONDESK AI               │  │
+│  │               ERRANDLY                 │  │
 │  │                                        │  │
 │  │        Desktop User Interface          │  │
 │  │         React + TypeScript             │  │
@@ -552,7 +552,7 @@ This is one of the most important technical requirements in the entire PRD.
 
 ## 7.1 Storage Philosophy
 
-ActionDesk AI must use the computer's existing storage instead of purchasing centralized storage infrastructure.
+Errandly must use the computer's existing storage instead of purchasing centralized storage infrastructure.
 
 The software will not maintain copies of user documents in Foxmen Studio's cloud.
 
@@ -570,7 +570,7 @@ Users are responsible for providing sufficient local storage.
 | Agent logs | Stored locally |
 | Generated reports | Stored in user-selected output location |
 | Backups | User-controlled |
-| Cloud synchronization | Not provided by ActionDesk |
+| Cloud synchronization | Not provided by Errandly |
 
 ## 7.2 Default Directory Structure
 
@@ -581,9 +581,9 @@ Proposed structure:
 ```text
 ~/Library/
     Application Support/
-        ActionDesk/
+        Errandly/
             database/
-                actiondesk.sqlite
+                errandly.sqlite
 
             models/
                 model-1.gguf
@@ -602,7 +602,7 @@ Proposed structure:
                 config.json
 
     Caches/
-        ActionDesk/
+        Errandly/
             extraction/
             previews/
             temporary/
@@ -614,7 +614,7 @@ For example:
 
 ```text
 ~/Documents/
-    ActionDesk/
+    Errandly/
         Reports/
         Summaries/
         Spreadsheets/
@@ -627,7 +627,7 @@ The displayed product name and the actual filesystem directory identifiers shoul
 
 **Requirement ID: STORAGE-001**
 
-ActionDesk must not automatically duplicate every document added to a workspace.
+Errandly must not automatically duplicate every document added to a workspace.
 
 For example, when a user adds:
 
@@ -673,7 +673,7 @@ The application must include a storage management screen.
 ### Example Interface
 
 ```text
-ActionDesk Storage
+Errandly Storage
 
 Application Data           85 MB
 Downloaded AI Models      4.2 GB
@@ -729,7 +729,7 @@ Only disposable caches and explicitly selected application data may be removed a
 
 **Requirement ID: STORAGE-005**
 
-Before downloading models or producing large files, ActionDesk must check available disk space.
+Before downloading models or producing large files, Errandly must check available disk space.
 
 If storage is insufficient, the application should:
 
@@ -757,7 +757,7 @@ If storage is insufficient, the application should:
 
 ## 8.1 Overview
 
-ActionDesk AI will run an AI model directly on the user's computer.
+Errandly will run an AI model directly on the user's computer.
 
 The local AI model is responsible for interpreting instructions and helping construct task plans.
 
@@ -788,7 +788,7 @@ Disadvantages:
 
 ### Option B: Local Ollama Integration
 
-Connect ActionDesk AI to Ollama running on the user's own Mac.
+Connect Errandly to Ollama running on the user's own Mac.
 
 Advantages:
 
@@ -807,7 +807,7 @@ Disadvantages:
 
 For the earliest technical prototype, support Ollama.
 
-For the consumer MVP, prioritize an integrated local inference experience so nontechnical users can install ActionDesk and download a model without separately configuring an AI runtime.
+For the consumer MVP, prioritize an integrated local inference experience so nontechnical users can install Errandly and download a model without separately configuring an AI runtime.
 
 The final runtime choice must be based on performance and packaging tests.
 
@@ -822,7 +822,7 @@ Foxmen Studio should not host large AI model files unless there is a compelling 
 ### Proposed Download Flow
 
 ```text
-User Opens ActionDesk
+User Opens Errandly
           |
           v
 Detect Mac Hardware
@@ -924,7 +924,7 @@ The xAI API is subject to provider pricing and account conditions.
 
 ## 9.2 Integration Model
 
-ActionDesk will implement **Bring Your Own API Key (BYOK)**.
+Errandly will implement **Bring Your Own API Key (BYOK)**.
 
 ### User Experience
 
@@ -958,7 +958,7 @@ When external AI is enabled, the application must explain what information will 
 
 Users must approve sending document contents or sensitive data to external services.
 
-ActionDesk must never send documents to Foxmen Studio as an intermediate storage or processing service.
+Errandly must never send documents to Foxmen Studio as an intermediate storage or processing service.
 
 Where technically supported, requests should travel directly from the user's device to the selected provider.
 
@@ -972,7 +972,7 @@ Where technically supported, requests should travel directly from the user's dev
 
 The Agent Engine transforms user instructions into executable computer tasks.
 
-It is the central component of ActionDesk AI.
+It is the central component of Errandly.
 
 ## 10.2 Agent Workflow
 
@@ -1309,7 +1309,7 @@ Allow users to separate tasks and documents by project or activity.
 ### Example Workspaces
 
 ```text
-ActionDesk
+Errandly
 
 ├── University
 │   ├── Research
@@ -1376,7 +1376,7 @@ A hosted database such as Supabase, Firebase, or PostgreSQL is unnecessary for t
 ## 15.2 Proposed Database Tables
 
 ```text
-actiondesk.sqlite
+errandly.sqlite
 
 ├── workspaces
 ├── conversations
@@ -1552,7 +1552,7 @@ Indexes must not be uploaded to Foxmen Studio servers.
 
 ## 17.1 Design Philosophy
 
-ActionDesk AI should feel like a premium macOS productivity application.
+Errandly should feel like a premium macOS productivity application.
 
 The interface must be:
 
@@ -1568,7 +1568,7 @@ The interface must be:
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
-│ ActionDesk                                  Local AI ●   │
+│ Errandly                                  Local AI ●   │
 ├────────────────┬─────────────────────────────────────────┤
 │                │                                         │
 │  + New Task    │          Good Morning                   │
@@ -1661,7 +1661,7 @@ Users should not be required to create an account or enter payment information.
 
 **Priority: P0 — Critical**
 
-ActionDesk will interact with real user files, so safety controls must be enforced outside the language model.
+Errandly will interact with real user files, so safety controls must be enforced outside the language model.
 
 ## 18.1 Permission Model
 
@@ -1683,7 +1683,7 @@ Use appropriate macOS file access mechanisms.
 ## 18.3 Approval Interface
 
 ```text
-ActionDesk wants to organize 42 files.
+Errandly wants to organize 42 files.
 
 Planned Actions
 
@@ -1823,13 +1823,13 @@ A smaller installer is more practical for distribution.
 ## 20.3 Installation Flow
 
 ```text
-Download ActionDesk.dmg
+Download Errandly.dmg
            |
            v
 Install Application
            |
            v
-Launch ActionDesk
+Launch Errandly
            |
            v
 Detect Hardware
@@ -1906,12 +1906,12 @@ For example:
 
 This is a product architecture decision, not an assertion that these hosted technologies are inherently unsuitable.
 
-They simply are not required for ActionDesk's initial use cases.
+They simply are not required for Errandly's initial use cases.
 
 ## 21.3 Example Project Structure
 
 ```text
-actiondesk/
+errandly/
 │
 ├── src/
 │   ├── app/
@@ -2056,7 +2056,7 @@ No cloud job queue is necessary.
 - Authorized folder changes.
 - Supported application events.
 
-If ActionDesk is closed, scheduled operations must follow the documented local background-execution behavior.
+If Errandly is closed, scheduled operations must follow the documented local background-execution behavior.
 
 The software must not imply that tasks can execute while the computer is powered off.
 
@@ -2113,7 +2113,7 @@ Users may save these backups on:
 - Another local computer.
 - Their own cloud-synchronized folders.
 
-If a user chooses iCloud Drive, Google Drive, or another synchronized location, the operating system or third-party provider may upload those files. That is separate from ActionDesk's default local processing.
+If a user chooses iCloud Drive, Google Drive, or another synchronized location, the operating system or third-party provider may upload those files. That is separate from Errandly's default local processing.
 
 The user must understand this distinction.
 
@@ -2455,7 +2455,7 @@ These targets must be measured during development and beta testing.
 
 ## US-001: Install Without an Account
 
-**As a user,** I want to download and install ActionDesk without creating an account.
+**As a user,** I want to download and install Errandly without creating an account.
 
 **Acceptance Criteria:**
 
@@ -2466,7 +2466,7 @@ These targets must be measured during development and beta testing.
 
 ## US-002: Use My Own Storage
 
-**As a user,** I want ActionDesk to use my computer's existing storage.
+**As a user,** I want Errandly to use my computer's existing storage.
 
 **Acceptance Criteria:**
 
@@ -2729,7 +2729,7 @@ Building a common execution engine for these workflows provides a foundation for
 
 | Category | Decision |
 |---|---|
-| Product Name | ActionDesk AI — Temporary |
+| Product Name | Errandly |
 | Company | Foxmen Studio |
 | Product Type | Agentic AI Desktop Application |
 | Initial Platform | macOS |
@@ -2763,9 +2763,9 @@ Building a common execution engine for these workflows provides a foundation for
 
 # 36. Final Vision
 
-## ActionDesk AI — Your Computer, Your AI, Your Data
+## Errandly — Your Computer, Your AI, Your Data
 
-ActionDesk AI will be an intelligent desktop assistant that executes useful work directly on the user's computer.
+Errandly will be an intelligent desktop assistant that executes useful work directly on the user's computer.
 
 The software will not depend on expensive cloud infrastructure for its core functionality.
 
@@ -2815,7 +2815,7 @@ For the first release, Foxmen Studio should adopt the following non-negotiable a
 
 ### Final MVP Definition
 
-**ActionDesk AI MVP is a downloadable macOS application that uses local AI and the user's own computer resources to understand instructions, organize files, analyze documents, process spreadsheets, and generate reports—all without mandatory cloud storage, developer-hosted inference, or recurring AI API payments.**
+**Errandly MVP is a downloadable macOS application that uses local AI and the user's own computer resources to understand instructions, organize files, analyze documents, process spreadsheets, and generate reports—all without mandatory cloud storage, developer-hosted inference, or recurring AI API payments.**
 
 This is the foundational technical and business requirement for the startup.
 

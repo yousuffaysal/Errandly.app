@@ -7,11 +7,14 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react()],
+  define: { __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? "0.0.0") },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
+  // A desktop app loads from disk, so one bundle is fine.
+  build: { chunkSizeWarningLimit: 1500 },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,

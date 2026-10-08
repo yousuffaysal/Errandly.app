@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Bundled AI runtime, fetched by scripts/fetch-runtime.sh
+src-tauri/runtime/

@@ -1,38 +1,41 @@
 # Errandly.app
 
-## ActionDesk AI — Phase 0 prototype
+## Errandly — beta
 
-Local-first agentic desktop assistant (see [prd.md](prd.md)). This prototype covers
-PRD §27 Phase 0: interpret an instruction with a local model, generate a plan,
-get approval, execute it with authorized local tools, verify the result, and undo it.
+A local-first agentic desktop assistant for macOS (Apple Silicon), built from
+[prd.md](prd.md). Everything runs on the Mac: the AI models, your files, your chats.
 
-The interface is the Errandly workspace design (`Errandly_software_interface/app/workspace`),
-wired to the real backend: conversations, a context panel with the attached folder and
-instructions, real planning progress, and plan/result cards with Approve and Undo.
+What it does today (the PRD's three P0 workflows):
 
-Each message is routed by the local model (organize / summarize / spreadsheet / chat).
-The one workflow implemented is the **file organizer** (PRD §11 / §34 Workflow A); the
-others reply honestly that they arrive in the next phase.
+| Ask | What happens |
+|---|---|
+| "Organize this folder by file type" | A plan of folders and moves → you approve → files move → checked on disk → undo anytime |
+| "Summarize the documents in this folder" | PDF, Word, text and Markdown files are read locally and summarized; save as Markdown |
+| "Analyze the sales spreadsheet" | Excel/CSV totals and groupings **calculated by code**; the model only explains them; save as an Excel report with a chart |
+
+Each message is routed to the right agent; anything else is a normal chat with
+one of four local models. Work happens only in folders you add to a conversation.
 
 ## Run
 
 ```sh
-# one-time
-brew install ollama
-brew services start ollama   # local inference on 127.0.0.1, starts at login
 pnpm install
-
-# dev
-pnpm tauri dev
+pnpm tauri dev      # first run fetches the bundled AI runtime (~160 MB download, 41 MB on disk)
 ```
 
 On first launch the app offers **Download and set up**: it pulls the shared base model
 once (~2.5 GB) and creates Errandly's four models from it. Cmd +/- zooms the window.
+No Homebrew needed: Errandly starts its own bundled runtime (or uses an Ollama that's
+already running).
 
 ```sh
-pnpm test:rust     # Rust core: security, planner, executor, undo, crash recovery, storage
-pnpm test:ollama   # live: installs the models, then chats and plans with each of them
+pnpm test          # UI smoke tests (real React app, fake backend)
+pnpm test:rust     # Rust core: security, agents, executor, undo, crash recovery, storage
+pnpm test:ollama   # live: installs the models, then chats, plans, summarizes and analyzes
 ```
+
+CI runs all of the above (except the live model tests) plus clippy and dependency
+audits on every push. Releases: see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Errandly's models
 
@@ -51,7 +54,8 @@ sampling and organizing style, defined in `src-tauri/src/ai/personas.rs`.
 
 Sign-in uses Supabase Auth (free tier). Copy `.env.example` to `.env.local` and fill in
 your project URL and anon key. Without them, the app runs fully local and hides sign-in.
-Sessions are stored in the macOS Keychain. Accounts are only for identity: files, chats
+The session is stored in Errandly's local database (owner-only file permissions), not the
+Keychain, so signing in never shows a system password prompt. Accounts are only for identity: files, chats
 and models stay on the Mac.
 
 ## Projects and history
@@ -83,22 +87,25 @@ On startup, tasks left `executing` by a crash are reconciled from the journal + 
 ## Layout
 
 ```
-src/                      React UI: components/ (Workspace, TaskCard, PersonaPicker, ProjectMenu,
-                          ModelSetup, Account), auth.ts (Supabase),
+src/                      React UI: components/Workspace.tsx (state) + components/workspace/
+                          (Sidebar, TopBar, MessageList, Composer, ContextPanel), TaskCard,
+                          ResultCards, Settings, Onboarding, Account; auth.ts, crash.ts, updates.ts
                           workspace.css (the design, unchanged) + app.css (app additions)
 src-tauri/src/
-  agents/   router.rs (intent) plan.rs (tool registry + validation) planner.rs executor.rs verifier.rs
-  ai/       Llm trait, ollama.rs (loopback-only client, model install), personas.rs
+  agents/   router.rs (intent) planner.rs executor.rs verifier.rs (organize)
+            documents.rs (summaries, prompt-injection defusing) analyst.rs (spreadsheets)
+  ai/       Llm trait, ollama.rs (loopback-only client, model install), personas.rs,
+            runtime.rs (starts/stops the bundled Ollama)
   security/ permissions.rs (path checks) validation.rs (folder names)
   storage/  sqlite.rs (migrations, WAL) repo.rs (tasks, grants) conversations.rs projects.rs
-  keychain.rs  session storage in the macOS Keychain
-  tools/    files.rs (scan, collision-free names, no-overwrite move)
+  session.rs   sign-in session storage in the local database
+  tools/    files.rs (scan, no-overwrite move) documents.rs (PDF/Word/text) spreadsheets.rs
+  crash.rs     local crash logs; opt-in upload
 ```
 
-Data: `~/Library/Application Support/Errandly/database/actiondesk.sqlite`. Keychain service: `studio.foxmen.errandly`.
+Data: `~/Library/Application Support/Errandly/database/errandly.sqlite`.
 
-## Not in Phase 0
+## Not yet
 
-Embedded llama.cpp runtime, model download manager, PDF/spreadsheet agents,
-workspaces UI, storage manager, nested-folder scans (top level only, ≤1000 files),
-App Sandbox + security-scoped bookmarks (needed before Mac App Store/sandboxed builds).
+Scanned-PDF text recognition (OCR), nested-folder scans (top level only, ≤1000 files),
+Intel Macs, dark theme, App Sandbox + security-scoped bookmarks (needed for the Mac App Store).

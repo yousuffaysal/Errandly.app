@@ -105,7 +105,6 @@ pub fn upsert_grant(db: &Db, path: &str) -> Result<Grant> {
     })
 }
 
-#[cfg(test)]
 pub fn list_grants(db: &Db) -> Result<Vec<Grant>> {
     db.with(|c| {
         c.prepare("SELECT id, path, created_at FROM permission_grants ORDER BY path")?

@@ -17,10 +17,15 @@ export function ModelSetup({ ai, onDone }: { ai: AiStatus; onDone: () => void })
   }, []);
 
   if (!ai.reachable) {
-    return (
+    return ai.runtimeBundled ? (
+      <div className="ew-setup-card">
+        <strong>Starting Errandly’s local AI…</strong>
+        <span>This takes a few seconds after opening the app.</span>
+      </div>
+    ) : (
       <div className="ew-setup-card">
         <strong>Errandly’s local AI isn’t running.</strong>
-        <span>Start it once with “brew services start ollama”. It will start on its own after that.</span>
+        <span>This build doesn’t include the AI runtime. Start Ollama with “brew services start ollama”.</span>
       </div>
     );
   }

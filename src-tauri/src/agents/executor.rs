@@ -159,7 +159,7 @@ pub fn reconcile_interrupted(db: &Db) -> Result<usize> {
             }
         }
         let status = if outcome.done > 0 { TaskStatus::PartiallyCompleted } else { TaskStatus::Failed };
-        repo::finish_task(db, id, status, Some("ActionDesk stopped while this task was running"))?;
+        repo::finish_task(db, id, status, Some("Errandly stopped while this task was running"))?;
         repo::audit(db, Some(id), "reconciled", status.as_str())?;
     }
     Ok(ids.len())

@@ -117,7 +117,7 @@ export function ProjectMenu({ projects, activeId, onSelect, onCreate, onRename, 
                 >
                   <Pencil size={12} />
                 </button>
-                {p.id !== "default" && (
+                {!p.isDefault && (
                   <button className="ew-icon" aria-label={`Delete ${p.name}`} onClick={() => setConfirming(p.id)}>
                     <Trash2 size={12} />
                   </button>

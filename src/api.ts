@@ -1,14 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AiStatus, Conversation, ConversationView, Project, Task } from "./types";
+import type {
+  AiStatus, Conversation, ConversationView, Grant, Preferences, Profile, Project, SettingsView, StorageReport, Task,
+} from "./types";
 
 export const PROGRESS_EVENT = "errandly://progress";
 export const INSTALL_EVENT = "errandly://install";
 export const REPLY_EVENT = "errandly://reply";
+export const OAUTH_EVENT = "errandly://oauth";
 
 export const api = {
   aiStatus: () => invoke<AiStatus>("ai_status"),
   installModels: () => invoke<void>("install_models"),
   warmUp: (persona: string) => invoke<void>("warm_up", { persona }),
+
+  getSettings: () => invoke<SettingsView>("get_settings"),
+  setActiveAccount: (accountId: string | null) => invoke<SettingsView>("set_active_account", { accountId }),
+  saveProfile: (profile: Profile) => invoke<Profile>("save_profile", { profile }),
+  savePreferences: (preferences: Preferences) => invoke<Preferences>("save_preferences", { preferences }),
+  storageReport: () => invoke<StorageReport>("storage_report"),
+  clearCache: () => invoke<void>("clear_cache"),
+  listGrants: () => invoke<Grant[]>("list_grants"),
+  revokeGrant: (grantId: string) => invoke<void>("revoke_grant", { grantId }),
+  exportAllData: () => invoke<boolean>("export_all_data"),
+  deleteAllConversations: () => invoke<void>("delete_all_conversations"),
 
   listProjects: () => invoke<Project[]>("list_projects"),
   createProject: (name: string, description = "") => invoke<Project>("create_project", { name, description }),
@@ -31,15 +45,19 @@ export const api = {
   sendMessage: (conversationId: string, text: string) => invoke<ConversationView>("send_message", { conversationId, text }),
   stopConversation: (conversationId: string) => invoke<boolean>("stop_conversation", { conversationId }),
   exportConversation: (conversationId: string) => invoke<boolean>("export_conversation", { conversationId }),
+  exportCard: (messageId: number) => invoke<boolean>("export_card", { messageId }),
 
   approveTask: (taskId: string) => invoke<Task>("approve_task", { taskId }),
   cancelTask: (taskId: string) => invoke<Task>("cancel_task", { taskId }),
   undoTask: (taskId: string) => invoke<Task>("undo_task", { taskId }),
   getTask: (taskId: string) => invoke<Task>("get_task", { taskId }),
 
-  secureGet: (key: string) => invoke<string | null>("secure_get", { key }),
-  secureSet: (key: string, value: string) => invoke<void>("secure_set", { key, value }),
-  secureRemove: (key: string) => invoke<void>("secure_remove", { key }),
+  startOAuthListener: () => invoke<number>("start_oauth_listener"),
+  openAuthUrl: (url: string) => invoke<void>("open_auth_url", { url }),
+
+  sessionGet: (key: string) => invoke<string | null>("session_get", { key }),
+  sessionSet: (key: string, value: string) => invoke<void>("session_set", { key, value }),
+  sessionRemove: (key: string) => invoke<void>("session_remove", { key }),
 };
 
 /** Tauri rejects with the serialized AppError, which is a plain string. */

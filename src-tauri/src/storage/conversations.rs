@@ -32,6 +32,8 @@ pub struct Message {
     pub role: String,
     pub text: String,
     pub task_id: Option<String>,
+    /// A result card (document summary or spreadsheet report), if any.
+    pub card: Option<serde_json::Value>,
     pub created_at: String,
 }
 
@@ -106,6 +108,27 @@ pub fn delete(db: &Db, id: &str) -> Result<()> {
     })
 }
 
+/// Deletes every conversation in every project of `owner`; task records stay.
+pub fn delete_all(db: &Db, owner: &str) -> Result<()> {
+    db.with(|c| {
+        let tx = c.transaction()?;
+        delete_in(&tx, "workspace_id IN (SELECT id FROM workspaces WHERE owner = ?1)", owner)?;
+        tx.commit()
+    })
+}
+
+/// The owner of the project a conversation lives in.
+pub fn owner_of(db: &Db, id: &str) -> Result<Option<String>> {
+    db.with(|c| {
+        c.query_row(
+            "SELECT w.owner FROM conversations c JOIN workspaces w ON w.id = c.workspace_id WHERE c.id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()
+    })
+}
+
 /// Shared by conversation and project deletion.
 pub(super) fn delete_in(tx: &rusqlite::Transaction, filter: &str, value: &str) -> rusqlite::Result<()> {
     tx.execute(
@@ -152,6 +175,18 @@ pub fn add_message(
     text: &str,
     task_id: Option<&str>,
 ) -> Result<Message> {
+    add_message_with_card(db, conversation_id, role, text, task_id, None)
+}
+
+pub fn add_message_with_card(
+    db: &Db,
+    conversation_id: &str,
+    role: Role,
+    text: &str,
+    task_id: Option<&str>,
+    card: Option<&serde_json::Value>,
+) -> Result<Message> {
+    let card = card.map(|c| c.to_string());
     db.with(|c| {
         let tx = c.transaction()?;
         let first: bool = tx.query_row(
@@ -160,8 +195,8 @@ pub fn add_message(
             |r| r.get(0),
         )?;
         tx.execute(
-            "INSERT INTO messages (conversation_id, role, text, task_id) VALUES (?1, ?2, ?3, ?4)",
-            params![conversation_id, role.as_str(), text, task_id],
+            "INSERT INTO messages (conversation_id, role, text, task_id, card) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![conversation_id, role.as_str(), text, task_id, card],
         )?;
         let id = tx.last_insert_rowid();
         if first && role == Role::User {
@@ -175,7 +210,7 @@ pub fn add_message(
             [conversation_id],
         )?;
         let msg = tx.query_row(
-            "SELECT id, role, text, task_id, created_at FROM messages WHERE id = ?1",
+            "SELECT id, role, text, task_id, created_at, card FROM messages WHERE id = ?1",
             [id],
             message_from_row,
         )?;
@@ -187,7 +222,7 @@ pub fn add_message(
 pub fn messages(db: &Db, conversation_id: &str) -> Result<Vec<Message>> {
     db.with(|c| {
         c.prepare(
-            "SELECT id, role, text, task_id, created_at FROM messages WHERE conversation_id = ?1 ORDER BY id",
+            "SELECT id, role, text, task_id, created_at, card FROM messages WHERE conversation_id = ?1 ORDER BY id",
         )?
         .query_map([conversation_id], message_from_row)?
         .collect()
@@ -229,7 +264,17 @@ fn message_from_row(r: &Row) -> rusqlite::Result<Message> {
         text: r.get(2)?,
         task_id: r.get(3)?,
         created_at: r.get(4)?,
+        card: r.get::<_, Option<String>>(5)?.and_then(|c| serde_json::from_str(&c).ok()),
     })
+}
+
+/// A message's card and the conversation it belongs to, for exporting.
+pub fn card(db: &Db, message_id: i64) -> Result<Option<(String, serde_json::Value)>> {
+    let row: Option<(String, Option<String>)> = db.with(|c| {
+        c.query_row("SELECT conversation_id, card FROM messages WHERE id = ?1", [message_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()
+    })?;
+    Ok(row.and_then(|(conv, card)| Some((conv, serde_json::from_str(&card?).ok()?))))
 }
 
 #[cfg(test)]

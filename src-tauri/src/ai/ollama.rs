@@ -30,6 +30,8 @@ pub struct AiStatus {
     /// The shared base weights are downloaded.
     pub base_installed: bool,
     pub personas: Vec<PersonaStatus>,
+    /// The app ships its own runtime, so "offline" just means it's starting.
+    pub runtime_bundled: bool,
 }
 
 #[derive(Clone)]
@@ -40,11 +42,22 @@ pub struct Ollama {
 }
 
 fn client(timeout: Duration) -> reqwest::Client {
+    ensure_tls_provider();
     reqwest::Client::builder()
         .timeout(timeout)
         .no_proxy()
         .build()
         .expect("static client config is valid")
+}
+
+/// The updater plugin builds the HTTP stack without a default TLS crypto
+/// provider, and any client created without one panics. Install the `ring`
+/// provider (already compiled in) once, before the first client.
+pub fn ensure_tls_provider() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
 }
 
 fn connect_error(e: reqwest::Error) -> AppError {
@@ -75,7 +88,7 @@ async fn installed_models() -> std::result::Result<Vec<String>, reqwest::Error> 
         .unwrap_or_default())
 }
 
-pub async fn status() -> AiStatus {
+pub async fn status(runtime_bundled: bool) -> AiStatus {
     let models = installed_models().await;
     let names = models.as_deref().unwrap_or_default();
     AiStatus {
@@ -85,7 +98,19 @@ pub async fn status() -> AiStatus {
             .iter()
             .map(|p| PersonaStatus { persona: p, installed: names.contains(&p.model()) })
             .collect(),
+        runtime_bundled,
     }
+}
+
+/// Disk used by the shared base model. The four Errandly models reuse its
+/// weights, so this is the whole cost.
+pub async fn models_size() -> Option<u64> {
+    let tags: Value = client(Duration::from_secs(5)).get(format!("{BASE_URL}/api/tags")).send().await.ok()?.json().await.ok()?;
+    tags["models"]
+        .as_array()?
+        .iter()
+        .find(|m| m["name"].as_str().map(|n| n.strip_suffix(":latest").unwrap_or(n)) == Some(BASE_MODEL))
+        .and_then(|m| m["size"].as_u64())
 }
 
 /// Downloads the base weights (if needed) and creates the four persona models.
@@ -270,7 +295,7 @@ mod tests {
     #[test]
     #[ignore]
     fn live_status() {
-        let s = tauri::async_runtime::block_on(super::status());
+        let s = tauri::async_runtime::block_on(super::status(false));
         println!("{s:#?}");
         assert!(s.reachable);
     }
@@ -283,7 +308,18 @@ mod live {
     #[ignore]
     fn live_install() {
         tauri::async_runtime::block_on(super::install(&|pct, label| println!("{pct:>3}% {label}"))).unwrap();
-        let s = tauri::async_runtime::block_on(super::status());
+        let s = tauri::async_runtime::block_on(super::status(false));
         assert!(s.base_installed && s.personas.iter().all(|p| p.installed), "{s:#?}");
+    }
+}
+
+#[cfg(test)]
+mod tls {
+    /// Regression: creating a client used to panic ("No rustls crypto provider")
+    /// once the updater plugin was added. Only talks to a local server, if one is running.
+    #[test]
+    fn clients_can_be_created() {
+        let s = tauri::async_runtime::block_on(super::status(false));
+        let _ = s.reachable;
     }
 }
