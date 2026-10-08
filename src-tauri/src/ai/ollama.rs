@@ -205,3 +205,15 @@ mod tests {
         assert!(s.reachable);
     }
 }
+
+#[cfg(test)]
+mod live {
+    /// Downloads the base (if missing) and creates the four models: `pnpm test:ollama`.
+    #[test]
+    #[ignore]
+    fn live_install() {
+        tauri::async_runtime::block_on(super::install(&|pct, label| println!("{pct:>3}% {label}"))).unwrap();
+        let s = tauri::async_runtime::block_on(super::status());
+        assert!(s.base_installed && s.personas.iter().all(|p| p.installed), "{s:#?}");
+    }
+}

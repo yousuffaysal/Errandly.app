@@ -13,14 +13,15 @@
     "windows": [
       {
         "title": "Errandly",
-        "width": 1280,
-        "height": 820,
+        "width": 1360,
+        "height": 880,
         "minWidth": 900,
-        "minHeight": 600
+        "minHeight": 600,
+        "zoomHotkeysEnabled": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.supabase.co https://*.googleusercontent.com"
     }
   },
   "bundle": {

@@ -19,19 +19,46 @@ others reply honestly that they arrive in the next phase.
 ```sh
 # one-time
 brew install ollama
-ollama serve &              # local inference, 127.0.0.1 only
-ollama pull qwen2.5:3b      # ~2 GB; sized for 8 GB Macs
+brew services start ollama   # local inference on 127.0.0.1, starts at login
 pnpm install
 
 # dev
-. "$HOME/.cargo/env"        # if cargo isn't on your PATH
 pnpm tauri dev
-
-# tests (Rust core: security, planner, executor, undo, crash recovery)
-pnpm test:rust
-# live tests against the local model (Ollama running, qwen2.5:3b pulled)
-pnpm test:ollama
 ```
+
+On first launch the app offers **Download and set up**: it pulls the shared base model
+once (~2.5 GB) and creates Errandly's four models from it. Cmd +/- zooms the window.
+
+```sh
+pnpm test:rust     # Rust core: security, planner, executor, undo, crash recovery, storage
+pnpm test:ollama   # live: installs the models, then chats and plans with each of them
+```
+
+## Errandly's models
+
+All four are created in Ollama from one open-weight base (Phi-4-mini, MIT; see
+[NOTICE.md](NOTICE.md)), so the weights are downloaded once. Each has its own voice,
+sampling and organizing style, defined in `src-tauri/src/ai/personas.rs`.
+
+| Model | Role | Organizes by |
+|---|---|---|
+| **Arip** | The organizer: decisive, tidy | 3–6 broad familiar folders |
+| **Shadow** | The careful one: privacy-first | Conservative; sensitive files into `Private`; unsure → left in place |
+| **Suf 4** | The scholar | Course / subject, lectures, assignments, papers |
+| **Howen 2** | The business partner | Invoices, receipts, contracts, reports, clients |
+
+## Accounts (optional)
+
+Sign-in uses Supabase Auth (free tier). Copy `.env.example` to `.env.local` and fill in
+your project URL and anon key. Without them, the app runs fully local and hides sign-in.
+Sessions are stored in the macOS Keychain. Accounts are only for identity: files, chats
+and models stay on the Mac.
+
+## Projects and history
+
+Conversations live in projects (the PRD's workspaces). Projects and conversations can be
+renamed and deleted; deleting never touches files on disk, and task records are kept for
+the audit trail.
 
 ## How a task runs
 
@@ -56,17 +83,19 @@ On startup, tasks left `executing` by a crash are reconciled from the journal + 
 ## Layout
 
 ```
-src/                      React UI: components/Workspace.tsx, components/TaskCard.tsx,
+src/                      React UI: components/ (Workspace, TaskCard, PersonaPicker, ProjectMenu,
+                          ModelSetup, Account), auth.ts (Supabase),
                           workspace.css (the design, unchanged) + app.css (app additions)
 src-tauri/src/
   agents/   router.rs (intent) plan.rs (tool registry + validation) planner.rs executor.rs verifier.rs
-  ai/       Llm trait, ollama.rs (loopback-only client)
+  ai/       Llm trait, ollama.rs (loopback-only client, model install), personas.rs
   security/ permissions.rs (path checks) validation.rs (folder names)
-  storage/  sqlite.rs (migrations, WAL) repo.rs (tasks, grants) conversations.rs
+  storage/  sqlite.rs (migrations, WAL) repo.rs (tasks, grants) conversations.rs projects.rs
+  keychain.rs  session storage in the macOS Keychain
   tools/    files.rs (scan, collision-free names, no-overwrite move)
 ```
 
-Data: `~/Library/Application Support/Errandly/database/actiondesk.sqlite`.
+Data: `~/Library/Application Support/Errandly/database/actiondesk.sqlite`. Keychain service: `studio.foxmen.errandly`.
 
 ## Not in Phase 0
 

@@ -46,9 +46,19 @@ export interface Task {
   steps: Step[];
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  conversationCount: number;
+  createdAt: string;
+}
+
 export interface Conversation {
   id: string;
+  projectId: string;
   title: string;
+  persona: string;
   grantId: string | null;
   folder: string | null;
   instructions: string;
@@ -76,8 +86,23 @@ export interface ProgressEvent {
   label: string;
 }
 
+export interface Persona {
+  id: string;
+  name: string;
+  tagline: string;
+  behavior: string;
+  skills: string[];
+  coming: string[];
+  installed: boolean;
+}
+
 export interface AiStatus {
   reachable: boolean;
-  models: string[];
-  defaultModel: string;
+  baseInstalled: boolean;
+  personas: Persona[];
+}
+
+export interface InstallEvent {
+  percent: number;
+  label: string;
 }

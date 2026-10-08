@@ -14,9 +14,11 @@ use crate::agents::planner::{self, Progress};
 use crate::agents::router::{self, Intent};
 use crate::agents::executor;
 use crate::ai::ollama::{self, AiStatus, Ollama};
+use crate::ai::personas::{self, Persona};
 use crate::error::{AppError, Result};
 use crate::security::permissions::canonical_root;
 use crate::storage::conversations::{self, Conversation, Message, Role};
+use crate::storage::projects::{self, Project};
 use crate::storage::repo::{self, Grant, StepStatus, TaskStatus, TaskView};
 use crate::storage::sqlite::Db;
 use crate::tools::files::scan_folder;
@@ -24,6 +26,7 @@ use crate::tools::files::scan_folder;
 const MAX_MESSAGE_CHARS: usize = 2000;
 const MAX_INSTRUCTIONS_CHARS: usize = 2000;
 pub const PROGRESS_EVENT: &str = "errandly://progress";
+pub const INSTALL_EVENT: &str = "errandly://install";
 
 pub struct AppState {
     pub db: Arc<Db>,
@@ -86,17 +89,79 @@ pub async fn ai_status() -> AiStatus {
     ollama::status().await
 }
 
-// ---- conversations --------------------------------------------------------
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct InstallEvent {
+    percent: u8,
+    label: String,
+}
+
+/// Downloads the shared base model and creates Errandly's four models, with
+/// progress events for the UI. Safe to run again; existing models are refreshed.
+#[tauri::command]
+pub async fn install_models(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    state.start("install")?;
+    let emit = |percent: u8, label: &str| {
+        let _ = app.emit(INSTALL_EVENT, InstallEvent { percent, label: label.to_string() });
+    };
+    let result = ollama::install(&emit).await;
+    state.finish("install");
+    result
+}
+
+// ---- projects -------------------------------------------------------------
 
 #[tauri::command]
-pub fn list_conversations(state: State<'_, AppState>) -> Result<Vec<Conversation>> {
-    conversations::list(&state.db)
+pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>> {
+    projects::list(&state.db)
 }
 
 #[tauri::command]
-pub fn create_conversation(state: State<'_, AppState>) -> Result<ConversationView> {
-    let conv = conversations::create(&state.db)?;
+pub fn create_project(state: State<'_, AppState>, name: String, description: String) -> Result<Project> {
+    projects::create(&state.db, &name, &description)
+}
+
+#[tauri::command]
+pub fn update_project(state: State<'_, AppState>, project_id: String, name: String, description: String) -> Result<Project> {
+    projects::update(&state.db, &project_id, &name, &description)
+}
+
+#[tauri::command]
+pub fn delete_project(state: State<'_, AppState>, project_id: String) -> Result<()> {
+    projects::delete(&state.db, &project_id)
+}
+
+// ---- conversations --------------------------------------------------------
+
+#[tauri::command]
+pub fn list_conversations(state: State<'_, AppState>, project_id: String) -> Result<Vec<Conversation>> {
+    conversations::list(&state.db, &project_id)
+}
+
+#[tauri::command]
+pub fn create_conversation(state: State<'_, AppState>, project_id: String, persona: String) -> Result<ConversationView> {
+    let conv = conversations::create(&state.db, &project_id, personas::get(&persona).id)?;
     conversation_view(&state.db, &conv.id)
+}
+
+#[tauri::command]
+pub fn rename_conversation(state: State<'_, AppState>, conversation_id: String, title: String) -> Result<Conversation> {
+    conversations::rename(&state.db, &conversation_id, &title)?;
+    conversations::get(&state.db, &conversation_id)
+}
+
+#[tauri::command]
+pub fn delete_conversation(state: State<'_, AppState>, conversation_id: String) -> Result<()> {
+    if state.is_running(&conversation_id) {
+        return Err(AppError::Invalid("wait for Errandly to finish before deleting this conversation".into()));
+    }
+    conversations::delete(&state.db, &conversation_id)
+}
+
+#[tauri::command]
+pub fn set_persona(state: State<'_, AppState>, conversation_id: String, persona: String) -> Result<Conversation> {
+    conversations::set_persona(&state.db, &conversation_id, personas::get(&persona).id)?;
+    conversations::get(&state.db, &conversation_id)
 }
 
 #[tauri::command]
@@ -133,8 +198,7 @@ pub fn detach_folder(state: State<'_, AppState>, conversation_id: String) -> Res
     let conv = conversations::get(&state.db, &conversation_id)?;
     conversations::set_grant(&state.db, &conversation_id, None)?;
     if let Some(grant_id) = conv.grant_id {
-        let in_use = conversations::list(&state.db)?.iter().any(|c| c.grant_id.as_deref() == Some(grant_id.as_str()));
-        if !in_use {
+        if !conversations::grant_in_use(&state.db, &grant_id)? {
             repo::delete_grant(&state.db, &grant_id)?;
             repo::audit(&state.db, None, "revoke", conv.folder.as_deref().unwrap_or(""))?;
         }
@@ -172,7 +236,6 @@ pub async fn send_message(
     state: State<'_, AppState>,
     conversation_id: String,
     text: String,
-    model: String,
 ) -> Result<ConversationView> {
     let text = text.trim().to_string();
     if text.is_empty() || text.chars().count() > MAX_MESSAGE_CHARS {
@@ -185,7 +248,8 @@ pub async fn send_message(
     let emit = |stage: u8, label: String| {
         let _ = app.emit(PROGRESS_EVENT, ProgressEvent { conversation_id: conversation_id.clone(), stage, label });
     };
-    let result = respond(&state.db, &conv, &text, &Ollama::new(model.clone()), &model, &cancel, &emit).await;
+    let persona = personas::get(&conv.persona);
+    let result = respond(&state.db, &conv, &text, &Ollama::for_persona(persona.id), persona, &cancel, &emit).await;
     state.finish(&conversation_id);
 
     let (reply, task_id) = match result {
@@ -202,12 +266,12 @@ async fn respond(
     conv: &Conversation,
     text: &str,
     llm: &Ollama,
-    model: &str,
+    persona: &Persona,
     cancel: &AtomicBool,
     emit: &(dyn Fn(u8, String) + Sync),
 ) -> Result<(String, Option<String>)> {
     emit(0, "Understanding your request".into());
-    let intent = router::route(llm, text).await?;
+    let intent = router::route(llm, persona.voice, text).await?;
     if cancel.load(Ordering::Relaxed) {
         return Err(AppError::Cancelled);
     }
@@ -239,12 +303,12 @@ async fn respond(
                 format!("{text}\n\nThe user's standing preferences for this conversation: {}", conv.instructions.trim())
             };
 
-            let task_id = repo::create_task(db, text, model, folder, Some(&conv.id))?;
+            let task_id = repo::create_task(db, text, persona.name, folder, Some(&conv.id))?;
             let progress = |p: Progress| match p {
                 Progress::ChoosingFolders => emit(1, "Choosing the right folders".into()),
                 Progress::Sorting { done, total } => emit(2, format!("Sorting files ({done} of {total})")),
             };
-            match planner::plan_organize(llm, &instruction, &root, &files, cancel, &progress).await {
+            match planner::plan_organize(llm, &instruction, &root, &files, persona.organize_style, cancel, &progress).await {
                 Ok(p) => {
                     let meta = serde_json::to_string(&p.meta).expect("plan meta serializes");
                     repo::save_plan(db, &task_id, &meta, &p.operations)?;
@@ -406,7 +470,6 @@ pub fn get_task(state: State<'_, AppState>, task_id: String) -> Result<TaskView>
 #[cfg(test)]
 mod live {
     use super::*;
-    use crate::ai::ollama::DEFAULT_MODEL;
 
     /// The whole chat flow against the real local model: `pnpm test:ollama`.
     #[test]
@@ -418,36 +481,37 @@ mod live {
             std::fs::write(root.join(n), "x").unwrap();
         }
         let db = Db::open_in_memory().unwrap();
-        let conv = conversations::create(&db).unwrap();
-        let llm = Ollama::new(DEFAULT_MODEL);
         let cancel = AtomicBool::new(false);
         let log = |stage: u8, label: String| println!("  [stage {stage}] {label}");
-        let ask = |text: &str| {
-            let conv = conversations::get(&db, &conv.id).unwrap();
+        let ask = |conv_id: &str, text: &str| {
+            let conv = conversations::get(&db, conv_id).unwrap();
+            let persona = personas::get(&conv.persona);
             let t = std::time::Instant::now();
-            let r = tauri::async_runtime::block_on(respond(&db, &conv, text, &llm, DEFAULT_MODEL, &cancel, &log)).unwrap();
-            println!("> {text}\n< {} ({:.1?})\n", r.0, t.elapsed());
+            let r = tauri::async_runtime::block_on(respond(&db, &conv, text, &Ollama::for_persona(persona.id), persona, &cancel, &log)).unwrap();
+            println!("> [{}] {text}\n< {} ({:.1?})\n", persona.name, r.0, t.elapsed());
             r
         };
 
-        // Chat, unsupported intents, and organizing without a folder never plan.
-        assert!(ask("hi! what can you do?").1.is_none());
-        assert!(ask("Summarize my lecture PDFs into study notes").1.is_none());
-        assert!(ask("Organize my Downloads folder").1.is_none());
+        // Each model introduces itself in its own voice.
+        for p in personas::PERSONAS {
+            let conv = conversations::create(&db, "default", p.id).unwrap();
+            assert!(ask(&conv.id, "Hi! Who are you and what can you do?").1.is_none());
+        }
+
+        let conv = conversations::create(&db, "default", "arip").unwrap();
+        assert!(ask(&conv.id, "Summarize my lecture PDFs into study notes").1.is_none());
+        assert!(ask(&conv.id, "Organize my Downloads folder").1.is_none());
 
         // With a folder attached, an organize request produces a plan awaiting approval.
         let grant = repo::upsert_grant(&db, &root.display().to_string()).unwrap();
         conversations::set_grant(&db, &conv.id, Some(&grant.id)).unwrap();
-        let (_, task_id) = ask("Sort this folder by file type");
+        let (_, task_id) = ask(&conv.id, "Sort this folder by file type");
         let task_id = task_id.expect("a plan");
         assert_eq!(repo::get_task(&db, &task_id).unwrap().status, TaskStatus::AwaitingApproval);
 
         assert_eq!(executor::execute(&db, &task_id, &AtomicBool::new(false)).unwrap(), TaskStatus::Completed);
-        let moved = std::fs::read_dir(&root).unwrap().filter(|e| e.as_ref().unwrap().path().is_dir()).count();
-        println!("folders created: {moved}");
         executor::undo(&db, &task_id).unwrap();
-        let mut names: Vec<_> = std::fs::read_dir(&root).unwrap().map(|e| e.unwrap().file_name()).collect();
-        names.sort();
+        let names: Vec<_> = std::fs::read_dir(&root).unwrap().map(|e| e.unwrap().file_name()).collect();
         assert_eq!(names.len(), 6, "everything is back at the top level: {names:?}");
     }
 }

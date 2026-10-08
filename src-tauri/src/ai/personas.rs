@@ -9,7 +9,6 @@ use serde::Serialize;
 
 /// Open-weight base under every persona: Microsoft Phi-4-mini, MIT licensed.
 pub const BASE_MODEL: &str = "phi4-mini";
-pub const DEFAULT_PERSONA: &str = "arip";
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +118,6 @@ mod tests {
         for p in PERSONAS {
             assert!(p.model().chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
         }
-        assert_eq!(get("nope").id, DEFAULT_PERSONA);
+        assert_eq!(get("nope").id, "arip");
     }
 }

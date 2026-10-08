@@ -13,7 +13,9 @@ const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 #[serde(rename_all = "camelCase")]
 pub struct Conversation {
     pub id: String,
+    pub project_id: String,
     pub title: String,
+    pub persona: String,
     pub grant_id: Option<String>,
     /// Path of the attached folder, if its grant still exists.
     pub folder: Option<String>,
@@ -48,28 +50,70 @@ impl Role {
     }
 }
 
-const SELECT: &str = "SELECT c.id, c.title, c.grant_id, g.path, c.instructions,
+const SELECT: &str = "SELECT c.id, c.workspace_id, c.title, c.persona, c.grant_id, g.path, c.instructions,
         (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id), c.created_at, c.updated_at
      FROM conversations c LEFT JOIN permission_grants g ON g.id = c.grant_id";
 
-pub fn create(db: &Db) -> Result<Conversation> {
+pub fn create(db: &Db, project_id: &str, persona: &str) -> Result<Conversation> {
     let id = uuid::Uuid::new_v4().to_string();
     db.with(|c| {
         c.execute(
-            "INSERT INTO conversations (id, title) VALUES (?1, 'A fresh start')",
-            [&id],
+            "INSERT INTO conversations (id, workspace_id, title, persona) VALUES (?1, ?2, 'A fresh start', ?3)",
+            params![id, project_id, persona],
         )
     })?;
     get(db, &id)
 }
 
-/// Newest activity first.
-pub fn list(db: &Db) -> Result<Vec<Conversation>> {
+/// A project's conversations, newest activity first.
+pub fn list(db: &Db, project_id: &str) -> Result<Vec<Conversation>> {
     db.with(|c| {
-        c.prepare(&format!("{SELECT} ORDER BY c.updated_at DESC"))?
-            .query_map([], from_row)?
+        c.prepare(&format!("{SELECT} WHERE c.workspace_id = ?1 ORDER BY c.updated_at DESC"))?
+            .query_map([project_id], from_row)?
             .collect()
     })
+}
+
+/// True if any conversation, in any project, still uses this folder grant.
+pub fn grant_in_use(db: &Db, grant_id: &str) -> Result<bool> {
+    db.with(|c| {
+        c.query_row("SELECT EXISTS (SELECT 1 FROM conversations WHERE grant_id = ?1)", [grant_id], |r| r.get(0))
+    })
+}
+
+pub fn rename(db: &Db, id: &str, title: &str) -> Result<()> {
+    let title = title.trim();
+    if title.is_empty() || title.chars().count() > 80 {
+        return Err(AppError::Invalid("a conversation name needs 1 to 80 characters".into()));
+    }
+    db.with(|c| c.execute("UPDATE conversations SET title = ?2 WHERE id = ?1", params![id, title]))?;
+    Ok(())
+}
+
+pub fn set_persona(db: &Db, id: &str, persona: &str) -> Result<()> {
+    db.with(|c| c.execute("UPDATE conversations SET persona = ?2 WHERE id = ?1", params![id, persona]))?;
+    Ok(())
+}
+
+/// Deletes a conversation and its messages. Task records are kept for the
+/// audit trail and undo, just no longer linked to the conversation.
+/// Files on disk are never touched.
+pub fn delete(db: &Db, id: &str) -> Result<()> {
+    db.with(|c| {
+        let tx = c.transaction()?;
+        delete_in(&tx, "id = ?1", id)?;
+        tx.commit()
+    })
+}
+
+/// Shared by conversation and project deletion.
+pub(super) fn delete_in(tx: &rusqlite::Transaction, filter: &str, value: &str) -> rusqlite::Result<()> {
+    tx.execute(
+        &format!("UPDATE tasks SET conversation_id = NULL WHERE conversation_id IN (SELECT id FROM conversations WHERE {filter})"),
+        [value],
+    )?;
+    tx.execute(&format!("DELETE FROM conversations WHERE {filter}"), [value])?;
+    Ok(())
 }
 
 pub fn get(db: &Db, id: &str) -> Result<Conversation> {
@@ -166,13 +210,15 @@ fn title_from(text: &str) -> String {
 fn from_row(r: &Row) -> rusqlite::Result<Conversation> {
     Ok(Conversation {
         id: r.get(0)?,
-        title: r.get(1)?,
-        grant_id: r.get(2)?,
-        folder: r.get(3)?,
-        instructions: r.get(4)?,
-        message_count: r.get(5)?,
-        created_at: r.get(6)?,
-        updated_at: r.get(7)?,
+        project_id: r.get(1)?,
+        title: r.get(2)?,
+        persona: r.get(3)?,
+        grant_id: r.get(4)?,
+        folder: r.get(5)?,
+        instructions: r.get(6)?,
+        message_count: r.get(7)?,
+        created_at: r.get(8)?,
+        updated_at: r.get(9)?,
     })
 }
 
@@ -194,7 +240,7 @@ mod tests {
     #[test]
     fn messages_titles_and_folder_grants() {
         let db = Db::open_in_memory().unwrap();
-        let conv = create(&db).unwrap();
+        let conv = create(&db, "default", "arip").unwrap();
         assert_eq!(conv.title, "A fresh start");
 
         add_message(&db, &conv.id, Role::User, "Help me organize my Downloads folder, please, by type", None).unwrap();
@@ -213,5 +259,21 @@ mod tests {
         repo::delete_grant(&db, &grant.id).unwrap();
         let conv = get(&db, &conv.id).unwrap();
         assert!(conv.grant_id.is_none() && conv.folder.is_none());
+
+        rename(&db, &conv.id, "  Downloads clean-up ").unwrap();
+        assert_eq!(get(&db, &conv.id).unwrap().title, "Downloads clean-up");
+        assert!(rename(&db, &conv.id, "   ").is_err());
+    }
+
+    #[test]
+    fn delete_keeps_task_records() {
+        let db = Db::open_in_memory().unwrap();
+        let conv = create(&db, "default", "arip").unwrap();
+        let task = repo::create_task(&db, "organize", "arip", "/tmp/x", Some(&conv.id)).unwrap();
+        add_message(&db, &conv.id, Role::Assistant, "plan", Some(&task)).unwrap();
+        delete(&db, &conv.id).unwrap();
+        assert!(get(&db, &conv.id).is_err());
+        assert!(list(&db, "default").unwrap().is_empty());
+        assert_eq!(repo::get_task(&db, &task).unwrap().conversation_id, None);
     }
 }

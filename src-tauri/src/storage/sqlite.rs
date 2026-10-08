@@ -80,6 +80,8 @@ CREATE TABLE messages (
 CREATE INDEX messages_by_conversation ON messages (conversation_id, id);
 
 ALTER TABLE tasks ADD COLUMN conversation_id TEXT REFERENCES conversations(id);
+"#, r#"
+ALTER TABLE conversations ADD COLUMN persona TEXT NOT NULL DEFAULT 'arip';
 "#];
 
 pub struct Db {

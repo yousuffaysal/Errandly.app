@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
-  ArrowUp, ArrowUpRight, BookOpen, ChevronDown, ChevronRight, Command, Download, Folder, FolderOpen,
-  LayoutGrid, MessageSquare, PanelLeftClose, PanelRight, Plus, Search, ShieldCheck, Sparkles, Square, X,
+  ArrowUp, ArrowUpRight, BookOpen, Check, ChevronRight, Command, Download, Folder, FolderOpen,
+  LayoutGrid, MessageSquare, PanelLeftClose, PanelRight, Pencil, Plus, Search, ShieldCheck, Square, Trash2, X,
 } from "lucide-react";
 import { api, errorText, PROGRESS_EVENT } from "../api";
 import { basename } from "../paths";
-import type { AiStatus, Conversation, ConversationView, Message, ProgressEvent } from "../types";
+import type { AiStatus, Conversation, ConversationView, Message, ProgressEvent, Project } from "../types";
+import { AuthDialog, ProfileRow, useUser } from "./Account";
+import { ModelSetup } from "./ModelSetup";
+import { PersonaPicker } from "./PersonaPicker";
+import { ProjectMenu } from "./ProjectMenu";
 import { TaskCard } from "./TaskCard";
 
 const suggestions = [
@@ -14,9 +18,20 @@ const suggestions = [
   { icon: BookOpen, title: "Find the useful parts", text: "Turn long documents into clear notes", prompt: "Help me summarize my research documents." },
   { icon: LayoutGrid, title: "Make the numbers click", text: "Build a report from your spreadsheets", prompt: "Help me create an expense report." },
 ];
-const STAGE_FALLBACK = ["Understanding your request", "Choosing the right folders", "Sorting files"];
+const STAGES = ["Understanding your request", "Choosing the right folders", "Sorting files"];
+const LAST_PROJECT_KEY = "errandly-last-project";
+
+const remembered = () => {
+  try {
+    return localStorage.getItem(LAST_PROJECT_KEY) ?? "default";
+  } catch {
+    return "default";
+  }
+};
 
 export default function Workspace() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState(remembered);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [view, setView] = useState<ConversationView | null>(null);
   const [input, setInput] = useState("");
@@ -28,51 +43,81 @@ export default function Workspace() {
   const [saved, setSaved] = useState(true);
   const [notice, setNotice] = useState("");
   const [ai, setAi] = useState<AiStatus | null>(null);
-  const [model, setModel] = useState("");
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const user = useUser();
   const endRef = useRef<HTMLDivElement>(null);
   const activeId = useRef<string | null>(null);
 
   const conv = view?.conversation;
   const busy = conv ? Boolean(thinking[conv.id]) : false;
   const progress = conv ? thinking[conv.id] : undefined;
-
-  const show = useCallback((v: ConversationView) => {
-    if (v.conversation.id === activeId.current || activeId.current === null) {
-      activeId.current = v.conversation.id;
-      setView(v);
-    }
-  }, []);
-  const refreshList = useCallback(() => api.listConversations().then(setConversations), []);
+  const persona = ai?.personas.find((p) => p.id === conv?.persona) ?? ai?.personas[0];
+  const modelReady = Boolean(ai?.reachable && persona?.installed);
   const fail = useCallback((e: unknown) => setNotice(errorText(e)), []);
 
-  const open = useCallback(
-    async (id: string) => {
-      activeId.current = id;
-      const v = await api.getConversation(id);
-      if (activeId.current === id) {
-        setView(v);
-        setInstructions(v.conversation.instructions);
-        setSaved(true);
-      }
+  const show = useCallback((v: ConversationView) => {
+    if (v.conversation.id === activeId.current) setView(v);
+  }, []);
+
+  const open = useCallback(async (id: string) => {
+    activeId.current = id;
+    const v = await api.getConversation(id);
+    if (activeId.current === id) {
+      setView(v);
+      setInstructions(v.conversation.instructions);
+      setSaved(true);
+    }
+  }, []);
+
+  const refreshProjects = useCallback(() => api.listProjects().then(setProjects), []);
+  const refreshList = useCallback(
+    () => api.listConversations(projectId).then(setConversations).then(refreshProjects),
+    [projectId, refreshProjects],
+  );
+
+  const startConversation = useCallback(
+    async (pid: string, personaId: string) => {
+      const v = await api.createConversation(pid, personaId);
+      activeId.current = v.conversation.id;
+      setView(v);
+      setInstructions("");
+      setSaved(true);
+      return v;
     },
     [],
   );
 
-  // Initial load: open the most recent conversation, or start one.
+  // Load the active project: open its latest conversation, or start one.
   useEffect(() => {
+    let live = true;
     (async () => {
-      const list = await api.listConversations();
-      if (list.length) {
-        setConversations(list);
-        await open(list[0].id);
-      } else {
-        const v = await api.createConversation();
-        activeId.current = v.conversation.id;
-        setView(v);
+      const ps = await api.listProjects();
+      if (!live) return;
+      setProjects(ps);
+      if (!ps.some((p) => p.id === projectId)) {
+        setProjectId("default");
+        return;
+      }
+      try {
+        localStorage.setItem(LAST_PROJECT_KEY, projectId);
+      } catch {
+        // Remembering the project is only a convenience.
+      }
+      const list = await api.listConversations(projectId);
+      if (!live) return;
+      setConversations(list);
+      if (list.length) await open(list[0].id);
+      else {
+        await startConversation(projectId, "arip");
         await refreshList();
       }
     })().catch(fail);
-  }, [open, refreshList, fail]);
+    return () => {
+      live = false;
+    };
+  }, [projectId, open, startConversation, refreshList, fail]);
 
   // Real planning progress from the Rust backend.
   useEffect(() => {
@@ -84,12 +129,7 @@ export default function Workspace() {
     };
   }, []);
 
-  const modelReady = Boolean(ai?.reachable && ai.models.includes(model));
-  const checkAi = useCallback(async () => {
-    const s = await api.aiStatus();
-    setAi(s);
-    setModel((m) => m || (s.models.includes(s.defaultModel) ? s.defaultModel : (s.models[0] ?? s.defaultModel)));
-  }, []);
+  const checkAi = useCallback(() => api.aiStatus().then(setAi).catch(() => {}), []);
   useEffect(() => {
     checkAi();
     const t = setInterval(checkAi, modelReady ? 15000 : 4000);
@@ -121,11 +161,7 @@ export default function Workspace() {
     setInput("");
     if (view && view.messages.length === 0) return;
     try {
-      const v = await api.createConversation();
-      activeId.current = v.conversation.id;
-      setView(v);
-      setInstructions("");
-      setSaved(true);
+      await startConversation(projectId, conv?.persona ?? "arip");
       await refreshList();
     } catch (e) {
       fail(e);
@@ -135,7 +171,7 @@ export default function Workspace() {
   async function send(value = input) {
     if (!conv || !value.trim() || busy) return;
     if (!modelReady) {
-      setNotice(setupText(ai, model));
+      setNotice("Set up Errandly’s models first. It only takes one download.");
       return;
     }
     const id = conv.id;
@@ -143,9 +179,9 @@ export default function Workspace() {
     const optimistic: Message = { id: -Date.now(), role: "user", text, taskId: null, createdAt: new Date().toISOString() };
     setView((v) => (v && v.conversation.id === id ? { ...v, messages: [...v.messages, optimistic] } : v));
     setInput("");
-    setThinking((t) => ({ ...t, [id]: { conversationId: id, stage: 0, label: STAGE_FALLBACK[0] } }));
+    setThinking((t) => ({ ...t, [id]: { conversationId: id, stage: 0, label: STAGES[0] } }));
     try {
-      show(await api.sendMessage(id, text, model));
+      show(await api.sendMessage(id, text));
     } catch (e) {
       fail(e);
       if (activeId.current === id) await open(id).catch(() => {});
@@ -155,25 +191,51 @@ export default function Workspace() {
     }
   }
 
-  function stop() {
-    if (conv) api.stopConversation(conv.id).catch(fail);
-  }
-
-  async function attach() {
+  const withConv = (fn: (id: string) => Promise<ConversationView>) => async () => {
     if (!conv) return;
     try {
-      show(await api.attachFolder(conv.id));
+      show(await fn(conv.id));
+      await refreshList();
+    } catch (e) {
+      fail(e);
+    }
+  };
+  const attach = withConv(api.attachFolder);
+  const detach = withConv(api.detachFolder);
+
+  async function choosePersona(id: string) {
+    if (!conv) return;
+    try {
+      const c = await api.setPersona(conv.id, id);
+      setView((v) => (v && v.conversation.id === c.id ? { ...v, conversation: c } : v));
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  async function saveRename() {
+    if (!renaming) return;
+    try {
+      const c = await api.renameConversation(renaming.id, renaming.title);
+      setView((v) => (v && v.conversation.id === c.id ? { ...v, conversation: c } : v));
+      setRenaming(null);
       await refreshList();
     } catch (e) {
       fail(e);
     }
   }
 
-  async function detach() {
-    if (!conv) return;
+  async function remove(id: string) {
     try {
-      show(await api.detachFolder(conv.id));
-      await refreshList();
+      await api.deleteConversation(id);
+      setDeleting(null);
+      const list = await api.listConversations(projectId);
+      setConversations(list);
+      await refreshProjects();
+      if (id === conv?.id) {
+        if (list.length) await open(list[0].id);
+        else await startConversation(projectId, conv?.persona ?? "arip");
+      }
     } catch (e) {
       fail(e);
     }
@@ -194,7 +256,7 @@ export default function Workspace() {
   }, [open, refreshList, fail]);
 
   const filtered = conversations.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()));
-  const folderCount = conv?.folder ? 1 : 0;
+  const project = projects.find((p) => p.id === projectId);
 
   return (
     <main id="main" className={`ew ${context ? "with-context" : ""}`}>
@@ -210,23 +272,96 @@ export default function Workspace() {
           <Search size={16} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search conversations" aria-label="Search conversations" />
         </label>
-        <div className="ew-space-label">WORKSPACE</div>
-        <button className="ew-personal" onClick={() => { setSearch(""); setSidebar(false); }}>
-          <span className="ew-folder"><Folder size={16} /></span>
-          Personal workspace
-          <ChevronDown size={14} />
-        </button>
+        <div className="ew-space-label">PROJECT</div>
+        <ProjectMenu
+          projects={projects}
+          activeId={projectId}
+          onSelect={(id) => {
+            setSearch("");
+            setSidebar(false);
+            setProjectId(id);
+          }}
+          onCreate={async (name) => {
+            try {
+              const p = await api.createProject(name);
+              await refreshProjects();
+              setProjectId(p.id);
+            } catch (e) {
+              fail(e);
+            }
+          }}
+          onRename={async (id, name) => {
+            try {
+              await api.updateProject(id, name);
+              await refreshProjects();
+            } catch (e) {
+              fail(e);
+            }
+          }}
+          onDelete={async (id) => {
+            try {
+              await api.deleteProject(id);
+              await refreshProjects();
+              if (id === projectId) setProjectId("default");
+            } catch (e) {
+              fail(e);
+            }
+          }}
+        />
         <div className="ew-history-title">
           Conversations<span>{conversations.length}</span>
         </div>
         <nav className="ew-history" aria-label="Chat history">
-          {filtered.map((c) => (
-            <button key={c.id} className={conv?.id === c.id ? "active" : ""} onClick={() => select(c.id)}>
-              <MessageSquare size={15} />
-              <span>{c.title}</span>
-              {conv?.id === c.id && <span className="ew-selected-dot" />}
-            </button>
-          ))}
+          {filtered.map((c) =>
+            renaming?.id === c.id ? (
+              <form
+                key={c.id}
+                className="ew-rename"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  saveRename();
+                }}
+              >
+                <input
+                  autoFocus
+                  value={renaming.title}
+                  maxLength={80}
+                  aria-label="Conversation name"
+                  onChange={(e) => setRenaming({ id: c.id, title: e.target.value })}
+                  onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
+                />
+                <button type="submit" className="ew-icon" aria-label="Save name">
+                  <Check size={13} />
+                </button>
+              </form>
+            ) : deleting === c.id ? (
+              <div key={c.id} className="ew-confirm">
+                <span>Delete this conversation? Files on your Mac stay untouched.</span>
+                <div>
+                  <button className="ew-danger" onClick={() => remove(c.id)}>
+                    Delete
+                  </button>
+                  <button onClick={() => setDeleting(null)}>Keep</button>
+                </div>
+              </div>
+            ) : (
+              <div key={c.id} className={`ew-history-row ${conv?.id === c.id ? "active" : ""}`}>
+                <button className={conv?.id === c.id ? "active" : ""} onClick={() => select(c.id)}>
+                  <MessageSquare size={15} />
+                  <span>{c.title}</span>
+                  {conv?.id === c.id && <span className="ew-selected-dot" />}
+                </button>
+                <span className="ew-row-actions">
+                  <button className="ew-icon" aria-label={`Rename ${c.title}`} onClick={() => setRenaming({ id: c.id, title: c.title })}>
+                    <Pencil size={12} />
+                  </button>
+                  <button className="ew-icon" aria-label={`Delete ${c.title}`} onClick={() => setDeleting(c.id)}>
+                    <Trash2 size={12} />
+                  </button>
+                </span>
+              </div>
+            ),
+          )}
           {filtered.length === 0 && <p className="ew-empty-search">No conversations found.</p>}
         </nav>
         <div className="ew-sidebar-bottom">
@@ -236,12 +371,7 @@ export default function Workspace() {
               A space that’s yours<small>Chat history saved on this Mac</small>
             </div>
           </div>
-          <div className="ew-profile">
-            <span className="ew-avatar">Y</span>
-            <div>
-              Your workspace<small>Personal · On this Mac</small>
-            </div>
-          </div>
+          <ProfileRow user={user} onSignIn={() => setAuthOpen(true)} />
         </div>
       </aside>
       {sidebar && <button className="ew-scrim" aria-label="Close navigation" onClick={() => setSidebar(false)} />}
@@ -252,14 +382,14 @@ export default function Workspace() {
             <PanelLeftClose size={18} />
           </button>
           <span className="ew-breadcrumb">
-            Personal
+            {project?.name ?? "Personal"}
             <ChevronRight size={13} />
           </span>
           <span className="ew-chat-title">{conv?.title}</span>
           <div className="ew-top-actions">
             <span className={`ew-preview-dot ${modelReady ? "" : ai?.reachable ? "is-warn" : "is-off"}`} />{" "}
             <span className="ew-preview-label">
-              {modelReady ? `Local AI · ${model}` : ai?.reachable ? `${model} not downloaded` : "Local AI offline"}
+              {modelReady ? `On-device · ${persona?.name}` : ai?.reachable ? "Models not set up" : "Local AI offline"}
             </span>
             <button className="ew-icon" onClick={download} title="Export conversation" aria-label="Export conversation">
               <Download size={17} />
@@ -299,11 +429,16 @@ export default function Workspace() {
                 </div>
               </div>
             ) : (
-              <>
-                {view.messages.map((m, i) => (
-                  <MessageItem key={m.id} message={m} previous={view.messages[i - 1]} onChanged={reload} onError={fail} />
-                ))}
-              </>
+              view.messages.map((m, i) => (
+                <MessageItem
+                  key={m.id}
+                  message={m}
+                  previous={view.messages[i - 1]}
+                  personaName={persona?.name ?? "Errandly"}
+                  onChanged={reload}
+                  onError={fail}
+                />
+              ))
             )}
             {busy && progress && (
               <div className="ew-thinking" role="status" aria-live="polite">
@@ -318,9 +453,9 @@ export default function Workspace() {
                     {progress.label}
                     <span className="ew-dots"><i /><i /><i /></span>
                   </strong>
-                  <p>A little thought. A little less on your plate.</p>
+                  <p>{persona?.name ?? "Errandly"} is thinking on this Mac. A little less on your plate.</p>
                   <div className="ew-progress">
-                    {STAGE_FALLBACK.map((s, i) => (
+                    {STAGES.map((s, i) => (
                       <span className={i <= progress.stage ? "on" : ""} key={s} />
                     ))}
                   </div>
@@ -341,7 +476,7 @@ export default function Workspace() {
               </button>
             </div>
           )}
-          {!notice && ai && !modelReady && <div className="ew-notice ew-setup">{setupText(ai, model)}</div>}
+          {ai && !modelReady && <ModelSetup ai={ai} onDone={checkAi} />}
           <form
             className={`ew-compose ${busy ? "is-thinking" : ""}`}
             onSubmit={(e) => {
@@ -365,23 +500,13 @@ export default function Workspace() {
               <button type="button" className="ew-icon" onClick={attach} aria-label="Add a folder to this conversation" title="Add a folder">
                 <Plus size={20} />
               </button>
-              <span className="ew-compose-model">
-                <Sparkles size={14} />
-                Errandly
-                {ai && ai.models.length > 1 ? (
-                  <select className="ew-model-tag ew-model-select" value={model} onChange={(e) => setModel(e.target.value)} aria-label="Local model">
-                    {ai.models.map((m) => <option key={m}>{m}</option>)}
-                  </select>
-                ) : (
-                  <span className="ew-model-tag">{model || "Local"}</span>
-                )}
-              </span>
+              {ai && conv && <PersonaPicker personas={ai.personas} value={conv.persona} onChange={choosePersona} />}
               <span className="ew-context-count" title={conv?.folder ?? undefined}>
                 <FolderOpen size={12} />
                 {conv?.folder ? basename(conv.folder) : "No folder"}
               </span>
               {busy ? (
-                <button type="button" className="ew-send" onClick={stop} aria-label="Stop">
+                <button type="button" className="ew-send" onClick={() => conv && api.stopConversation(conv.id).catch(fail)} aria-label="Stop">
                   <Square size={15} fill="currentColor" />
                 </button>
               ) : (
@@ -417,7 +542,7 @@ export default function Workspace() {
             </div>
             <div className="ew-context-section">
               <h3>
-                Folder<span>{folderCount}</span>
+                Folder<span>{conv.folder ? 1 : 0}</span>
                 <button className="ew-icon" onClick={attach} aria-label="Add a folder">
                   <Plus size={15} />
                 </button>
@@ -439,6 +564,20 @@ export default function Workspace() {
                 {conv.folder ? "Use a different folder" : "Add a folder to this chat"}
               </button>
             </div>
+            {persona && (
+              <div className="ew-context-section">
+                <h3>
+                  Model<span>{persona.tagline}</span>
+                </h3>
+                <div className="ew-memory">
+                  <span className="ew-memory-dot" />
+                  <div>
+                    {persona.name}
+                    <small>{persona.behavior}</small>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="ew-context-section">
               <h3>
                 Instructions<span className="ew-auto-save">{saved ? "Auto-saved" : "Saving…"}</span>
@@ -480,13 +619,16 @@ export default function Workspace() {
           </div>
         </aside>
       )}
+
+      {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
     </main>
   );
 }
 
-function MessageItem({ message: m, previous, onChanged, onError }: {
+function MessageItem({ message: m, previous, personaName, onChanged, onError }: {
   message: Message;
   previous?: Message;
+  personaName: string;
   onChanged: () => void;
   onError: (e: unknown) => void;
 }) {
@@ -503,7 +645,7 @@ function MessageItem({ message: m, previous, onChanged, onError }: {
       <article className={`ew-message ew-${m.role}`}>
         <div className="ew-message-label">
           {m.role === "user" ? <span className="ew-small-avatar">Y</span> : <span className="ew-small-mark">✳</span>}
-          <strong>{m.role === "user" ? "You" : "Errandly"}</strong>
+          <strong>{m.role === "user" ? "You" : personaName}</strong>
           <small>{m.role === "user" ? "" : "Your thinking partner"}</small>
         </div>
         <div className="ew-message-text">{m.text}</div>
@@ -520,9 +662,4 @@ function dayLabel(iso: string) {
   if (d.toDateString() === today.toDateString()) return "TODAY";
   if (d.toDateString() === yesterday.toDateString()) return "YESTERDAY";
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toUpperCase();
-}
-
-function setupText(ai: AiStatus | null, model: string) {
-  if (!ai?.reachable) return "Local AI isn’t running. Start it with “brew services start ollama”.";
-  return `Download the local model first: “ollama pull ${model}” (about 2 GB).`;
 }
