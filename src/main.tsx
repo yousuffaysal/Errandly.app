@@ -1,9 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import Workspace from "./components/Workspace";
+import "./workspace.css";
+import "./app.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <Workspace />
   </React.StrictMode>,
 );

@@ -58,6 +58,28 @@ CREATE TABLE audit_events (
     detail     TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+"#, r#"
+CREATE TABLE conversations (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id),
+    title        TEXT NOT NULL,
+    grant_id     TEXT REFERENCES permission_grants(id) ON DELETE SET NULL,
+    instructions TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    text            TEXT NOT NULL,
+    task_id         TEXT REFERENCES tasks(id),
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX messages_by_conversation ON messages (conversation_id, id);
+
+ALTER TABLE tasks ADD COLUMN conversation_id TEXT REFERENCES conversations(id);
 "#];
 
 pub struct Db {

@@ -37,6 +37,7 @@ export interface Task {
   status: TaskStatus;
   modelId: string;
   root: string;
+  conversationId: string | null;
   plan: PlanMeta | null;
   error: string | null;
   createdAt: string;
@@ -45,10 +46,34 @@ export interface Task {
   steps: Step[];
 }
 
-export interface Grant {
+export interface Conversation {
   id: string;
-  path: string;
+  title: string;
+  grantId: string | null;
+  folder: string | null;
+  instructions: string;
+  messageCount: number;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface Message {
+  id: number;
+  role: "user" | "assistant";
+  text: string;
+  taskId: string | null;
+  createdAt: string;
+}
+
+export interface ConversationView {
+  conversation: Conversation;
+  messages: Message[];
+}
+
+export interface ProgressEvent {
+  conversationId: string;
+  stage: number;
+  label: string;
 }
 
 export interface AiStatus {

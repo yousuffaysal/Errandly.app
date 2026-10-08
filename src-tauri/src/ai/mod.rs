@@ -1,4 +1,5 @@
 pub mod ollama;
+pub mod personas;
 
 use std::future::Future;
 

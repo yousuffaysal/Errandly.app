@@ -1,0 +1,44 @@
+/* Desktop-app additions on top of the design's workspace.css, in the same visual language. */
+html, body, #root { margin: 0; height: 100%; background: #fbfbf7; }
+body { -webkit-font-smoothing: antialiased; }
+.ew-brand { cursor: default; user-select: none; }
+
+/* Local AI status in the top bar */
+.ew-preview-dot.is-warn { background: #c9a35b; }
+.ew-preview-dot.is-off { background: #c7776b; }
+.ew-model-select { border: 0; font: inherit; font-size: 8px; color: #929a84; appearance: none; cursor: pointer; }
+.ew-setup { color: #9a7a3c; }
+
+/* Plan / result card */
+.ew-category-bar-live i { display: block; min-width: 3px; }
+.ew-new-folder { font-style: normal; font-size: 8px; color: #8c9a77; background: #edf1e4; border-radius: 3px; padding: 1px 4px; margin-left: 4px; }
+.ew-ready.ok { color: #6a7f4f; }
+.ew-ready.warn { background: #f5eedd; color: #9a7a3c; }
+.ew-ready.bad { background: #f6e5e1; color: #a5584b; }
+.ew-ready.muted { background: #f0f1eb; color: #9ca18e; }
+.ew-review { border-top: 1px solid #eff0e8; padding: 10px 23px; font-size: 10px; }
+.ew-review summary { cursor: pointer; color: #85936e; list-style: none; }
+.ew-review summary::-webkit-details-marker { display: none; }
+.ew-review summary::before { content: "▸"; display: inline-block; margin-right: 6px; transition: transform .15s; }
+.ew-review[open] summary::before { transform: rotate(90deg); }
+.ew-review ul { list-style: none; margin: 10px 0 4px; padding: 0; max-height: 220px; overflow-y: auto; scrollbar-width: thin; }
+.ew-review li { display: flex; gap: 6px; align-items: baseline; padding: 3px 0; color: #6f7566; flex-wrap: wrap; }
+.ew-review-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
+.ew-review-arrow { color: #b6bca9; }
+.ew-review-to { color: #7e9065; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ew-review-status { margin-left: auto; font-size: 8px; text-transform: uppercase; letter-spacing: .5px; color: #9ca28f; }
+.ew-review li.failed .ew-review-status, .ew-review li.undo_failed .ew-review-status { color: #a5584b; }
+.ew-review li small { width: 100%; color: #a5584b; font-size: 9px; }
+.ew-review-left { margin-top: 10px !important; color: #9ca28f; }
+
+.ew-actions { display: flex; gap: 8px; margin-left: 32px; }
+.ew-actions .ew-followup { margin-left: 0; }
+.ew-approve { background: #6b7c55 !important; color: #fff !important; border-color: #6b7c55 !important; }
+.ew-approve:hover { background: #5d6d49 !important; }
+.ew-followup svg { flex-shrink: 0; }
+.ew-thinking-inline { margin-left: 32px; }
+.ew-stop { margin-left: auto !important; }
+
+@media (max-width: 650px) {
+  .ew-actions, .ew-thinking-inline { margin-left: 0; }
+}

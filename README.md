@@ -6,7 +6,13 @@ Local-first agentic desktop assistant (see [prd.md](prd.md)). This prototype cov
 PRD §27 Phase 0: interpret an instruction with a local model, generate a plan,
 get approval, execute it with authorized local tools, verify the result, and undo it.
 
-The one workflow implemented is the **file organizer** (PRD §11 / §34 Workflow A).
+The interface is the Errandly workspace design (`Errandly_software_interface/app/workspace`),
+wired to the real backend: conversations, a context panel with the attached folder and
+instructions, real planning progress, and plan/result cards with Approve and Undo.
+
+Each message is routed by the local model (organize / summarize / spreadsheet / chat).
+The one workflow implemented is the **file organizer** (PRD §11 / §34 Workflow A); the
+others reply honestly that they arrive in the next phase.
 
 ## Run
 
@@ -23,6 +29,8 @@ pnpm tauri dev
 
 # tests (Rust core: security, planner, executor, undo, crash recovery)
 pnpm test:rust
+# live tests against the local model (Ollama running, qwen2.5:3b pulled)
+pnpm test:ollama
 ```
 
 ## How a task runs
@@ -48,16 +56,17 @@ On startup, tasks left `executing` by a crash are reconciled from the journal + 
 ## Layout
 
 ```
-src/                      React UI (App, TaskPanel, typed invoke wrappers)
+src/                      React UI: components/Workspace.tsx, components/TaskCard.tsx,
+                          workspace.css (the design, unchanged) + app.css (app additions)
 src-tauri/src/
-  agents/   plan.rs (tool registry + validation) planner.rs executor.rs verifier.rs
+  agents/   router.rs (intent) plan.rs (tool registry + validation) planner.rs executor.rs verifier.rs
   ai/       Llm trait, ollama.rs (loopback-only client)
   security/ permissions.rs (path checks) validation.rs (folder names)
-  storage/  sqlite.rs (migrations, WAL) repo.rs (typed queries)
+  storage/  sqlite.rs (migrations, WAL) repo.rs (tasks, grants) conversations.rs
   tools/    files.rs (scan, collision-free names, no-overwrite move)
 ```
 
-Data: `~/Library/Application Support/ActionDesk/database/actiondesk.sqlite`.
+Data: `~/Library/Application Support/Errandly/database/actiondesk.sqlite`.
 
 ## Not in Phase 0
 

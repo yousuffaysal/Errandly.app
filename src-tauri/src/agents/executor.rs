@@ -240,7 +240,7 @@ mod tests {
         let assignment: HashMap<usize, String> =
             [(0, "Docs"), (1, "Docs"), (2, "Images")].into_iter().map(|(i, f)| (i, f.to_string())).collect();
         let (ops, _) = build_operations(&root, &files, &assignment).unwrap();
-        let task = repo::create_task(&db, "organize", "test", &root_s).unwrap();
+        let task = repo::create_task(&db, "organize", "test", &root_s, None).unwrap();
         repo::save_plan(&db, &task, "{}", &ops).unwrap();
         Fixture { _dir: dir, root, db, task }
     }

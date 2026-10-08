@@ -78,6 +78,7 @@ pub struct TaskView {
     pub status: TaskStatus,
     pub model_id: String,
     pub root: String,
+    pub conversation_id: Option<String>,
     pub plan: Option<serde_json::Value>,
     pub error: Option<String>,
     pub created_at: String,
@@ -104,24 +105,13 @@ pub fn upsert_grant(db: &Db, path: &str) -> Result<Grant> {
     })
 }
 
+#[cfg(test)]
 pub fn list_grants(db: &Db) -> Result<Vec<Grant>> {
     db.with(|c| {
         c.prepare("SELECT id, path, created_at FROM permission_grants ORDER BY path")?
             .query_map([], grant_from_row)?
             .collect()
     })
-}
-
-pub fn get_grant(db: &Db, id: &str) -> Result<Grant> {
-    db.with(|c| {
-        c.query_row(
-            "SELECT id, path, created_at FROM permission_grants WHERE id = ?1",
-            [id],
-            grant_from_row,
-        )
-        .optional()
-    })?
-    .ok_or_else(|| AppError::Permission("folder access has not been granted".into()))
 }
 
 /// True if `root` is still an active grant. Checked again right before execution.
@@ -152,13 +142,19 @@ fn grant_from_row(r: &Row) -> rusqlite::Result<Grant> {
 
 // ---- tasks ----------------------------------------------------------------
 
-pub fn create_task(db: &Db, instruction: &str, model_id: &str, root: &str) -> Result<String> {
+pub fn create_task(
+    db: &Db,
+    instruction: &str,
+    model_id: &str,
+    root: &str,
+    conversation_id: Option<&str>,
+) -> Result<String> {
     let id = uuid::Uuid::new_v4().to_string();
     db.with(|c| {
         c.execute(
-            "INSERT INTO tasks (id, workspace_id, instruction, status, model_id, root)
-             VALUES (?1, 'default', ?2, ?3, ?4, ?5)",
-            params![id, instruction, TaskStatus::Planning.as_str(), model_id, root],
+            "INSERT INTO tasks (id, workspace_id, instruction, status, model_id, root, conversation_id)
+             VALUES (?1, 'default', ?2, ?3, ?4, ?5, ?6)",
+            params![id, instruction, TaskStatus::Planning.as_str(), model_id, root, conversation_id],
         )
     })?;
     Ok(id)
@@ -272,15 +268,6 @@ pub fn get_task(db: &Db, id: &str) -> Result<TaskView> {
     Ok(task)
 }
 
-/// Recent tasks without their steps, newest first.
-pub fn list_tasks(db: &Db, limit: u32) -> Result<Vec<TaskView>> {
-    db.with(|c| {
-        c.prepare(&format!("{TASK_SELECT} ORDER BY created_at DESC LIMIT ?1"))?
-            .query_map([limit], task_from_row)?
-            .collect()
-    })
-}
-
 pub fn task_ids_with_status(db: &Db, statuses: &[TaskStatus]) -> Result<Vec<String>> {
     let wanted: Vec<&str> = statuses.iter().map(|s| s.as_str()).collect();
     db.with(|c| {
@@ -306,7 +293,7 @@ pub fn audit(db: &Db, task_id: Option<&str>, kind: &str, detail: &str) -> Result
     Ok(())
 }
 
-const TASK_SELECT: &str = "SELECT id, instruction, status, model_id, root, plan_json, error, created_at, completed_at, undone_at FROM tasks";
+const TASK_SELECT: &str = "SELECT id, instruction, status, model_id, root, plan_json, error, created_at, completed_at, undone_at, conversation_id FROM tasks";
 
 fn task_from_row(r: &Row) -> rusqlite::Result<TaskView> {
     let plan: Option<String> = r.get(5)?;
@@ -321,6 +308,7 @@ fn task_from_row(r: &Row) -> rusqlite::Result<TaskView> {
         created_at: r.get(7)?,
         completed_at: r.get(8)?,
         undone_at: r.get(9)?,
+        conversation_id: r.get(10)?,
         steps: Vec::new(),
     })
 }

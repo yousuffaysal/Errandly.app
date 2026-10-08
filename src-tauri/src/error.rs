@@ -14,6 +14,8 @@ pub enum AppError {
     InvalidPlan(String),
     #[error("{0}")]
     Invalid(String),
+    #[error("stopped")]
+    Cancelled,
     #[error("not found: {0}")]
     NotFound(String),
 }

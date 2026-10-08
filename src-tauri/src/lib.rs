@@ -13,7 +13,7 @@ use storage::sqlite::Db;
 
 /// On-disk folder name under ~/Library/Application Support. Kept separate from
 /// the displayed product name so the app can be rebranded without moving data.
-const DATA_DIR_NAME: &str = "ActionDesk";
+const DATA_DIR_NAME: &str = "Errandly";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,15 +36,19 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::ai_status,
-            commands::pick_and_grant_folder,
-            commands::list_grants,
-            commands::revoke_grant,
-            commands::plan_task,
+            commands::list_conversations,
+            commands::create_conversation,
+            commands::get_conversation,
+            commands::set_instructions,
+            commands::attach_folder,
+            commands::detach_folder,
+            commands::send_message,
+            commands::stop_conversation,
+            commands::export_conversation,
             commands::approve_task,
             commands::cancel_task,
             commands::undo_task,
             commands::get_task,
-            commands::list_tasks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
