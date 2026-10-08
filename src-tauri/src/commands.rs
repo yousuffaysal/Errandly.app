@@ -308,7 +308,7 @@ async fn respond(
                 Progress::ChoosingFolders => emit(1, "Choosing the right folders".into()),
                 Progress::Sorting { done, total } => emit(2, format!("Sorting files ({done} of {total})")),
             };
-            match planner::plan_organize(llm, &instruction, &root, &files, persona.organize_style, cancel, &progress).await {
+            match planner::plan_organize(&llm.precise(), &instruction, &root, &files, persona.organize_style, cancel, &progress).await {
                 Ok(p) => {
                     let meta = serde_json::to_string(&p.meta).expect("plan meta serializes");
                     repo::save_plan(db, &task_id, &meta, &p.operations)?;

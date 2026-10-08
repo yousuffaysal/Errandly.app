@@ -29,6 +29,7 @@ pub struct AiStatus {
     pub personas: Vec<PersonaStatus>,
 }
 
+#[derive(Clone)]
 pub struct Ollama {
     client: reqwest::Client,
     model: String,
@@ -158,6 +159,11 @@ impl Ollama {
         let p = personas::get(id);
         // Cold-loading a model on an 8 GB Mac can take a while.
         Self { client: client(Duration::from_secs(300)), model: p.model(), temperature: p.temperature }
+    }
+
+    /// The same model with sampling turned off, for plans that must be repeatable.
+    pub fn precise(&self) -> Self {
+        Self { temperature: 0.0, ..self.clone() }
     }
 }
 

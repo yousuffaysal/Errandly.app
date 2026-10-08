@@ -87,7 +87,7 @@ pub async fn plan_organize<L: Llm>(
                 &assign_schema(&categories, batch.len()),
             )
             .await?;
-        for (i, folder) in parse_assignments(&raw, batch.len(), &categories, &mut rejected) {
+        for (i, folder) in parse_assignments(&raw, batch, &categories, &mut rejected) {
             assignment.insert(batch_no * BATCH_SIZE + i, folder);
         }
     }
@@ -234,20 +234,22 @@ fn parse_categories(raw: &Value, rejected: &mut usize) -> Vec<String> {
     out
 }
 
-/// Keeps entries whose key is an in-range file number and whose folder is
-/// allowed. Everything else is counted as rejected; missing files stay in place.
+/// Keeps entries whose key is an in-range file number, whose folder is allowed
+/// and which pass the kind check. Everything else is counted as rejected;
+/// missing files stay in place.
 fn parse_assignments(
     raw: &Value,
-    batch_len: usize,
+    batch: &[FileEntry],
     categories: &[String],
     rejected: &mut usize,
 ) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     for (key, folder) in raw.as_object().into_iter().flatten() {
-        let i = key.parse::<usize>().ok().filter(|&i| i < batch_len);
+        let i = key.parse::<usize>().ok().filter(|&i| i < batch.len());
         match (i, folder.as_str()) {
             (Some(i), Some(folder))
-                if folder == LEAVE_IN_PLACE || categories.iter().any(|c| c == folder) =>
+                if folder == LEAVE_IN_PLACE
+                    || (categories.iter().any(|c| c == folder) && kind_fits(folder, &batch[i].extension)) =>
             {
                 out.push((i, folder.to_string()))
             }
@@ -255,6 +257,29 @@ fn parse_assignments(
         }
     }
     out
+}
+
+/// A folder whose name plainly names a kind of file ("Installers", "Images")
+/// only accepts files of that kind; a passport scan never lands in Installers.
+/// Folders named by topic ("Business", "STAT301") accept anything.
+fn kind_fits(folder: &str, ext: &str) -> bool {
+    let name = folder.to_lowercase();
+    let kind = file_kind(ext);
+    let rules: &[(&[&str], &[&str])] = &[
+        (&["installer", "app", "setup"], &["installer"]),
+        (&["image", "photo", "picture", "screenshot"], &["image", "graphic design"]),
+        (&["graphic", "design"], &["image", "graphic design"]),
+        (&["spreadsheet", "excel", "sheet"], &["spreadsheet"]),
+        (&["archive", "zip", "compressed"], &["archive"]),
+        (&["video", "movie"], &["video"]),
+        (&["audio", "music", "sound"], &["audio"]),
+        (&["presentation", "slide"], &["presentation"]),
+        (&["code", "script"], &["code"]),
+    ];
+    rules
+        .iter()
+        .find(|(words, _)| words.iter().any(|w| name.contains(w)))
+        .is_none_or(|(_, kinds)| kinds.contains(&kind))
 }
 
 /// A coarse, deterministic kind for each extension. Small models sort far more
@@ -387,6 +412,16 @@ mod tests {
     }
 
     #[test]
+    fn kind_named_folders_only_take_their_kind() {
+        assert!(kind_fits("Installers", "pkg"));
+        assert!(!kind_fits("Installers", "pdf"));
+        assert!(!kind_fits("Images", "dmg"));
+        assert!(kind_fits("Images", "svg"));
+        assert!(kind_fits("Business", "dmg"), "topic folders accept anything");
+        assert!(kind_fits("Private", "pdf"));
+    }
+
+    #[test]
     fn empty_folder_is_an_error() {
         let (_d, root) = folder(&[]);
         assert!(plan(ScriptedLlm(Mutex::new(vec![])), &root).is_err());
@@ -421,7 +456,7 @@ mod live {
         for persona in PERSONAS {
             let t = std::time::Instant::now();
             let p = tauri::async_runtime::block_on(plan_organize(
-                &Ollama::for_persona(persona.id),
+                &Ollama::for_persona(persona.id).precise(),
                 "Organize this folder",
                 &root,
                 &files,
