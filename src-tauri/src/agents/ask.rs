@@ -133,6 +133,82 @@ pub fn excerpts(docs: &[(String, String)], question: &str, budget: usize) -> Vec
     chosen.into_iter().map(|i| (docs[passages[i].0].0.clone(), passages[i].2.clone())).collect()
 }
 
+/// Passages spread evenly through each document (start, middle, end), for
+/// summarizing rather than answering a specific question.
+pub fn overview(docs: &[(String, String)], budget: usize) -> Vec<(String, String)> {
+    let per_doc = budget / docs.len().max(1);
+    let mut out = Vec::new();
+    for (name, text) in docs {
+        let passages = chunks(&defuse(text).0, PASSAGE_CHARS);
+        let take = (per_doc / PASSAGE_CHARS).max(1).min(passages.len());
+        if take == 0 {
+            continue;
+        }
+        let step = passages.len() as f64 / take as f64;
+        for k in 0..take {
+            out.push((name.clone(), passages[(k as f64 * step) as usize].clone()));
+        }
+    }
+    out
+}
+
+/// A length the user asked for, like "in 2 lines" or "one sentence":
+/// the most lines or sentences the answer may have.
+pub fn line_limit(request: &str) -> Option<usize> {
+    let text = request.to_lowercase();
+    let words: Vec<&str> = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let number = |w: &str| match w {
+        "a" | "an" | "one" | "single" => Some(1),
+        "two" | "couple" => Some(2),
+        "three" => Some(3),
+        "four" => Some(4),
+        "five" => Some(5),
+        _ => w.parse::<usize>().ok().filter(|n| (1..=10).contains(n)),
+    };
+    words.windows(2).find_map(|w| {
+        let unit = w[1].trim_end_matches('s');
+        if matches!(unit, "line" | "sentence") { number(w[0]) } else { None }
+    })
+}
+
+/// True when a summary request says how it should be written (length,
+/// style or a correction), so it's answered as written rather than as the
+/// standard summary card.
+pub fn custom_summary(request: &str) -> bool {
+    let text = request.to_lowercase();
+    line_limit(request).is_some()
+        || [
+            "word", "short", "brief", "tl;dr", "tldr", "simple", "eli5", "one paragraph", "a paragraph", "i mean",
+            "bullet", "only", "just", "in bangla", "in bengali", "in english", "like i'm", "like im", "for a",
+        ]
+        .iter()
+        .any(|k| text.contains(k))
+}
+
+/// Keeps at most `n` lines, and at most `n` sentences when the answer is a
+/// single paragraph, so "in 2 lines" really is two.
+pub fn limit_lines(answer: &str, n: usize) -> String {
+    let lines: Vec<&str> = answer.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    if lines.len() > n {
+        return lines[..n].join("\n");
+    }
+    let mut sentences = Vec::new();
+    let mut start = 0;
+    let chars: Vec<(usize, char)> = answer.char_indices().collect();
+    for (i, (pos, c)) in chars.iter().enumerate() {
+        let next_is_space = chars.get(i + 1).is_none_or(|(_, n)| n.is_whitespace());
+        if matches!(c, '.' | '!' | '?') && next_is_space {
+            sentences.push(answer[start..pos + c.len_utf8()].trim());
+            start = pos + c.len_utf8();
+        }
+    }
+    if sentences.len() > n {
+        sentences[..n].join(" ")
+    } else {
+        answer.trim().to_string()
+    }
+}
+
 /// The excerpts as a block for the model, clearly fenced as data.
 pub fn context_block(excerpts: &[(String, String)]) -> String {
     let body: Vec<String> = excerpts.iter().map(|(name, text)| format!("[From {name}]\n{text}")).collect();
@@ -163,6 +239,23 @@ mod tests {
         assert_eq!(ex.len(), 1);
         assert_eq!(ex[0].0, "lecture.pdf");
         assert!(ex[0].1.contains("posterior uncertainty"));
+    }
+
+    #[test]
+    fn lengths_the_user_asks_for() {
+        assert_eq!(line_limit("i mean summery under 2 line"), Some(2));
+        assert_eq!(line_limit("summarize it in one sentence"), Some(1));
+        assert_eq!(line_limit("summarize this"), None);
+        assert!(custom_summary("i mean summery under 2 line"));
+        assert!(custom_summary("give me a short summary"));
+        assert!(!custom_summary("summarize this"));
+        let long = "The contract transfers copyright to the publisher. Authors keep academic rights. They warrant originality.";
+        assert_eq!(limit_lines(long, 2), "The contract transfers copyright to the publisher. Authors keep academic rights.");
+        assert_eq!(limit_lines("One.\nTwo.\nThree.", 2), "One.\nTwo.");
+        assert_eq!(limit_lines("Version 2.1 is out. Done.", 2), "Version 2.1 is out. Done.");
+        let doc = vec![("c.pdf".to_string(), (0..40).map(|i| format!("Clause {i}. ").repeat(30)).collect::<Vec<_>>().join("\n\n"))];
+        let ov = overview(&doc, 4_000);
+        assert!(ov.len() >= 3 && ov[0].1.contains("Clause 0") && !ov.last().unwrap().1.contains("Clause 0."));
     }
 
     #[test]

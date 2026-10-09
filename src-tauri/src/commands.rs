@@ -713,6 +713,10 @@ async fn respond(
     let files = attached(conv);
     let has_docs = files.iter().any(|f| documents::is_document(&f.2));
     let has_sheet = files.iter().any(|f| spreadsheets::is_spreadsheet(&f.2));
+    // "Summarize it in 2 lines" is answered as asked, in the conversation;
+    // a plain "summarize this" gets the summary card.
+    let custom_summary = intent == Intent::SummarizeDocuments && has_docs && ask::custom_summary(text);
+    let intent = if custom_summary { Intent::Chat } else { intent };
     if cancel.load(Ordering::Relaxed) {
         return Err(AppError::Cancelled);
     }
@@ -721,10 +725,13 @@ async fn respond(
         Intent::Chat => {
             // Recent messages, oldest first; the current message is already saved.
             let all = conversations::messages(db, &conv.id)?;
+            // With document excerpts in the prompt, keep less history so both
+            // fit in the model's context.
+            let (keep, clip) = if files.is_empty() { (CHAT_HISTORY, MAX_HISTORY_CHARS) } else { (6, 600) };
             let recent: Vec<(String, String)> = all
                 .iter()
-                .skip(all.len().saturating_sub(CHAT_HISTORY))
-                .map(|m| (m.role.clone(), m.text.chars().take(MAX_HISTORY_CHARS).collect()))
+                .skip(all.len().saturating_sub(keep))
+                .map(|m| (m.role.clone(), m.text.chars().take(clip).collect()))
                 .collect();
             let mut history: Vec<(&str, &str)> = recent.iter().map(|(r, t)| (r.as_str(), t.as_str())).collect();
             // For a writing command, the model sees the precise task, not "/email …".
@@ -746,10 +753,23 @@ async fn respond(
                 })
                 .await
                 .map_err(|e| AppError::Invalid(e.to_string()))?;
-                let excerpts = ask::excerpts(&docs, task.as_deref().unwrap_or(text), ask::BUDGET_CHARS);
+                let excerpts = if custom_summary {
+                    let docs: Vec<(String, String)> =
+                        docs.into_iter().filter(|(n, _)| files.iter().any(|f| f.0 == *n && documents::is_document(&f.2))).collect();
+                    ask::overview(&docs, ask::BUDGET_CHARS)
+                } else {
+                    ask::excerpts(&docs, task.as_deref().unwrap_or(text), ask::BUDGET_CHARS)
+                };
                 if !excerpts.is_empty() {
                     system.push_str("\n\n");
                     system.push_str(&ask::context_block(&excerpts));
+                }
+                if custom_summary {
+                    system.push_str(
+                        "\n\nThe user wants a summary of the attached document(s), written their way. Follow the length \
+                         and format they ask for exactly: if they say 2 lines, write at most 2 short sentences, with no \
+                         heading, list or preamble.",
+                    );
                 }
                 emit(2, "Writing the answer".into());
             }
@@ -763,7 +783,10 @@ async fn respond(
                 }
             };
             let raw = llm.chat_stream(&system, &history, cancel, &streamed).await?;
-            let reply = clean(&raw).filter(|c| !c.is_empty()).unwrap_or(raw);
+            let mut reply = clean(&raw).filter(|c| !c.is_empty()).unwrap_or(raw);
+            if let Some(n) = ask::line_limit(text).filter(|_| custom_summary) {
+                reply = ask::limit_lines(&reply, n);
+            }
             if reply.is_empty() {
                 return Err(if cancel.load(Ordering::Relaxed) { AppError::Cancelled } else { AppError::Ai("the model gave an empty reply".into()) });
             }
@@ -1315,6 +1338,9 @@ mod live {
         assert!(answer.text.contains("9:30"), "{}", answer.text);
         let summary = run("summarize this");
         assert_eq!(summary.card.expect("a documents card")["folder"], "Attached files");
+        let short = run("i mean summery under 2 line");
+        assert!(short.card.is_none(), "answered as asked, not as a card");
+        assert!(ask::limit_lines(&short.text, 2) == short.text, "{}", short.text);
 
         let doc = pdf_reports::answer(&answer.text, "Reading room");
         assert!(pdf::render(&doc).unwrap().starts_with(b"%PDF"));
