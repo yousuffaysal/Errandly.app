@@ -1,9 +1,10 @@
 import { Mark } from "../Mark";
-import { forwardRef } from "react";
-import { ArrowUpRight, BookOpen, Folder, LayoutGrid } from "lucide-react";
+import { forwardRef, useState } from "react";
+import { ArrowUpRight, BookOpen, Check, Copy, Folder, LayoutGrid, RotateCcw } from "lucide-react";
 import type { Message, ProgressEvent } from "../../types";
 import { ResultCardView, SavePdf } from "../ResultCards";
 import { TaskCard } from "../TaskCard";
+import { Markdown } from "../Markdown";
 
 /** Answers this long (an email, a plan, notes) can be saved as a PDF. */
 const SAVEABLE_CHARS = 280;
@@ -24,6 +25,7 @@ export interface MessageListProps {
   live?: string;
   onSuggestion: (prompt: string) => void;
   onChanged: () => void;
+  onRegenerate: () => void;
   onError: (e: unknown) => void;
 }
 
@@ -62,7 +64,9 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function
               previous={messages[i - 1]}
               personaName={personaName}
               initial={props.initial}
+              canRegenerate={!busy && i === messages.length - 1 && m.role === "assistant"}
               onChanged={props.onChanged}
+              onRegenerate={props.onRegenerate}
               onError={props.onError}
             />
           ))
@@ -74,7 +78,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function
               <strong>{personaName}</strong>
               <small>Your thinking partner</small>
             </div>
-            <div className="ew-message-text ew-streaming">{live}</div>
+            <div className="ew-message-text ew-streaming"><Markdown text={live} /></div>
           </article>
         )}
         {busy && progress && !live && (
@@ -106,12 +110,14 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function
   );
 });
 
-function MessageItem({ message: m, previous, personaName, initial, onChanged, onError }: {
+function MessageItem({ message: m, previous, personaName, initial, canRegenerate, onChanged, onRegenerate, onError }: {
   message: Message;
   previous?: Message;
   personaName: string;
   initial: string;
+  canRegenerate: boolean;
   onChanged: () => void;
+  onRegenerate: () => void;
   onError: (e: unknown) => void;
 }) {
   const day = dayLabel(m.createdAt);
@@ -130,7 +136,7 @@ function MessageItem({ message: m, previous, personaName, initial, onChanged, on
           <strong>{m.role === "user" ? "You" : personaName}</strong>
           <small>{m.role === "user" ? "" : "Your thinking partner"}</small>
         </div>
-        <div className="ew-message-text">{m.text}</div>
+        <div className="ew-message-text">{m.role === "assistant" ? <Markdown text={m.text} /> : m.text}</div>
         {m.taskId && <TaskCard taskId={m.taskId} onChanged={onChanged} onError={onError} />}
         {m.card && <ResultCardView card={m.card} messageId={m.id} onError={onError} />}
         {m.role === "assistant" && !m.card && !m.taskId && m.text.length >= SAVEABLE_CHARS && (
@@ -138,8 +144,32 @@ function MessageItem({ message: m, previous, personaName, initial, onChanged, on
             <SavePdf messageId={m.id} onError={onError} />
           </div>
         )}
+        {m.id > 0 && (
+          <div className="ew-message-tools">
+            <CopyButton text={m.text} />
+            {canRegenerate && (
+              <button onClick={onRegenerate} aria-label="Regenerate answer" title="Answer again">
+                <RotateCcw size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </article>
     </>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () =>
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }, () => {});
+  return (
+    <button onClick={copy} aria-label={copied ? "Copied" : "Copy message"} title={copied ? "Copied" : "Copy"}>
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+    </button>
   );
 }
 

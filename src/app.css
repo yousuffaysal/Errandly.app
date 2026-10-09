@@ -309,3 +309,25 @@ body { -webkit-font-smoothing: antialiased; }
 .ew-add-menu svg { color: #586a45; margin-top: 2px; flex-shrink: 0; }
 .ew-add-menu small { display: block; font-size: 10.5px; color: #686e5b; margin-top: 2px; }
 .ew-actions .ew-followup svg:first-child { color: #586a45; }
+
+/* Formatted replies. */
+.ew-assistant .ew-message-text:has(.ew-md) { white-space: normal; }
+.ew-md > * + * { margin-top: 10px !important; }
+.ew-md h3, .ew-md h4 { font-family: Georgia, serif; font-weight: 400; color: #33402a; line-height: 1.4; }
+.ew-md h3 { font-size: 16px; margin-top: 18px !important; }
+.ew-md h4 { font-size: 14px; margin-top: 14px !important; }
+.ew-md ul, .ew-md ol { margin: 0; padding-left: 22px; }
+.ew-md li + li { margin-top: 6px; }
+.ew-md li::marker { color: #6d7d58; }
+.ew-md strong { font-weight: 600; color: #1f241b; }
+.ew-md code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; background: #f0f2e9; padding: 1px 5px; border-radius: 4px; }
+.ew-md pre { background: #f3f4ee; border: 1px solid #e3e6da; border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+.ew-md pre code { background: none; padding: 0; white-space: pre; }
+
+/* Copy / answer again, under each message. */
+.ew-message-tools { display: flex; gap: 2px; margin: 6px 0 0 32px; opacity: 0; transition: opacity .15s; }
+.ew-user .ew-message-tools { justify-content: flex-end; margin-left: 0; }
+.ew-message:hover .ew-message-tools, .ew-message:focus-within .ew-message-tools, .ew-message:last-of-type .ew-message-tools { opacity: 1; }
+.ew-message-tools button { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: #66715a !important; }
+.ew-message-tools button:hover { background: #eef1e6 !important; color: #33402a !important; }
+@media (max-width: 650px) { .ew-message-tools { margin-left: 0; opacity: 1; } }

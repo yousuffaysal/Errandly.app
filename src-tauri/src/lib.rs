@@ -95,6 +95,7 @@ pub fn run() {
             commands::attach_files,
             commands::detach_file,
             commands::send_message,
+            commands::regenerate,
             commands::stop_conversation,
             commands::export_conversation,
             commands::export_card,

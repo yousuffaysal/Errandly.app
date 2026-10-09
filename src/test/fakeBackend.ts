@@ -61,6 +61,12 @@ export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: s
           messages.push({ id: nextId++, role: "assistant", text: r.text, taskId: null, card: r.card ?? null, createdAt: now });
           return view();
         }
+        case "regenerate": {
+          messages.pop();
+          const r = opts.reply?.("again") ?? { text: "A second answer." };
+          messages.push({ id: nextId++, role: "assistant", text: r.text, taskId: null, card: null, createdAt: new Date().toISOString() });
+          return view();
+        }
         case "attach_files":
           conv.files = ["/Users/x/Documents/Lecture 4.pdf"];
           return view();

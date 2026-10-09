@@ -295,6 +295,12 @@ fn message_from_row(r: &Row) -> rusqlite::Result<Message> {
     })
 }
 
+/// Removes the messages after `message_id` (for answering again).
+pub fn delete_after(db: &Db, id: &str, message_id: i64) -> Result<()> {
+    db.with(|c| c.execute("DELETE FROM messages WHERE conversation_id = ?1 AND id > ?2", params![id, message_id]))?;
+    Ok(())
+}
+
 /// A message and the conversation it belongs to.
 pub fn message(db: &Db, message_id: i64) -> Result<Option<(String, Message)>> {
     db.with(|c| {

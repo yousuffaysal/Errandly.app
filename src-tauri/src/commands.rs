@@ -578,8 +578,47 @@ pub async fn send_message(
         return Err(AppError::Invalid(format!("keep messages between 1 and {MAX_MESSAGE_CHARS} characters")));
     }
     own_conversation(&state.db, &conversation_id)?;
-    let conv = conversations::get(&state.db, &conversation_id)?;
-    let cancel = state.start(&conversation_id)?;
+    answer(&app, &state, &conversation_id, &text, true).await
+}
+
+/// Answers the last message again: the previous reply is replaced. A plan
+/// that's waiting for approval is withdrawn; one already applied must be
+/// undone first, so nothing on disk is left without its record.
+#[tauri::command]
+pub async fn regenerate(app: AppHandle, state: State<'_, AppState>, conversation_id: String) -> Result<ConversationView> {
+    own_conversation(&state.db, &conversation_id)?;
+    if state.is_running(&conversation_id) {
+        return Err(AppError::Invalid("Errandly is still answering".into()));
+    }
+    let messages = conversations::messages(&state.db, &conversation_id)?;
+    let Some(last) = messages.iter().rposition(|m| m.role == "user") else {
+        return Err(AppError::Invalid("there's nothing to answer again yet".into()));
+    };
+    for m in &messages[last + 1..] {
+        let Some(task_id) = &m.task_id else { continue };
+        match repo::get_task(&state.db, task_id)?.status {
+            TaskStatus::AwaitingApproval | TaskStatus::Planning | TaskStatus::Created => {
+                repo::finish_task(&state.db, task_id, TaskStatus::Cancelled, Some("replaced by a new answer"))?
+            }
+            TaskStatus::Cancelled | TaskStatus::Failed => {}
+            _ => {
+                return Err(AppError::Invalid(
+                    "these changes were already applied. Undo them first if you'd like a different plan".into(),
+                ))
+            }
+        }
+    }
+    let user = messages[last].clone();
+    conversations::delete_after(&state.db, &conversation_id, user.id)?;
+    answer(&app, &state, &conversation_id, &user.text, false).await
+}
+
+/// Works out what `text` asks for and saves the reply (and, when `save_user`,
+/// the user's message first).
+async fn answer(app: &AppHandle, state: &AppState, conversation_id: &str, text: &str, save_user: bool) -> Result<ConversationView> {
+    let conv = conversations::get(&state.db, conversation_id)?;
+    let cancel = state.start(conversation_id)?;
+    let conversation_id = conversation_id.to_string();
 
     let emit = |stage: u8, label: String| {
         let _ = app.emit(PROGRESS_EVENT, ProgressEvent { conversation_id: conversation_id.clone(), stage, label });
@@ -591,8 +630,9 @@ pub async fn send_message(
     let llm = Ollama::for_persona(persona.id);
     // Everything that can fail runs before `finish`, so the conversation is
     // never left marked busy.
-    let result = match conversations::add_message(&state.db, &conversation_id, Role::User, &text, None) {
-        Ok(_) => respond(&state.db, &conv, &text, &llm, persona, &cancel, &emit, &reply).await,
+    let saved = if save_user { conversations::add_message(&state.db, &conversation_id, Role::User, text, None).map(|_| ()) } else { Ok(()) };
+    let result = match saved {
+        Ok(()) => respond(&state.db, &conv, text, &llm, persona, &cancel, &emit, &reply).await,
         Err(e) => Err(e),
     };
     state.finish(&conversation_id);

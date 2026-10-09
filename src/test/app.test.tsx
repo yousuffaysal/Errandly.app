@@ -71,6 +71,30 @@ describe("Errandly smoke tests", () => {
     expect(await screen.findByText("PDF saved")).toBeInTheDocument();
   });
 
+  it("shows formatting, copies a reply and answers again", async () => {
+    let n = 0;
+    const { calls } = fakeBackend({
+      profileCompleted: true,
+      reply: () => ({ text: n++ === 0 ? "He is **very strong** in:\n\n- Next.js\n- Python and snake_case_names" : "A second answer." }),
+    });
+    render(<Workspace />);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Message Errandly"), "rate him{Enter}");
+    const bold = await screen.findByText("very strong");
+    expect(bold.tagName).toBe("STRONG");
+    expect(screen.getByText("Next.js").tagName).toBe("LI");
+    expect(screen.getByText("Python and snake_case_names")).toBeInTheDocument();
+    expect(screen.queryByText(/\*\*/)).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Copy message" }).slice(-1)[0]);
+    expect(await navigator.clipboard.readText()).toContain("**very strong**");
+
+    await user.click(screen.getByRole("button", { name: "Regenerate answer" }));
+    expect(await screen.findByText("A second answer.")).toBeInTheDocument();
+    expect(screen.queryByText("very strong")).not.toBeInTheDocument();
+    expect(calls.some((c) => c.cmd === "regenerate")).toBe(true);
+  });
+
   it("the / menu finds a command and sends it", async () => {
     const { calls } = fakeBackend({ profileCompleted: true });
     render(<Workspace />);

@@ -45,6 +45,7 @@ export const api = {
   attachFiles: (conversationId: string) => invoke<ConversationView>("attach_files", { conversationId }),
   detachFile: (conversationId: string, path: string) => invoke<ConversationView>("detach_file", { conversationId, path }),
   sendMessage: (conversationId: string, text: string) => invoke<ConversationView>("send_message", { conversationId, text }),
+  regenerate: (conversationId: string) => invoke<ConversationView>("regenerate", { conversationId }),
   stopConversation: (conversationId: string) => invoke<boolean>("stop_conversation", { conversationId }),
   exportConversation: (conversationId: string) => invoke<boolean>("export_conversation", { conversationId }),
   exportCard: (messageId: number) => invoke<boolean>("export_card", { messageId }),

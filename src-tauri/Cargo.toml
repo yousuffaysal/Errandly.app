@@ -1,6 +1,6 @@
 [package]
 name = "errandly"
-version = "0.1.5"
+version = "0.1.6"
 description = "Errandly — local-first agentic desktop assistant"
 authors = ["Foxmen Studio"]
 edition = "2021"

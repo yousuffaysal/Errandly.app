@@ -224,6 +224,32 @@ export default function Workspace() {
     }
   }
 
+  async function regenerate() {
+    if (!conv || busy) return;
+    if (!modelReady) {
+      setNotice("Set up Errandly’s models first. It only takes one download.");
+      return;
+    }
+    const id = conv.id;
+    // The old reply goes away while the new one is written.
+    setView((v) => {
+      if (!v || v.conversation.id !== id) return v;
+      const lastUser = v.messages.map((m) => m.role).lastIndexOf("user");
+      return { ...v, messages: v.messages.slice(0, lastUser + 1) };
+    });
+    setThinking((t) => ({ ...t, [id]: { conversationId: id, stage: 0, label: STAGES[0] } }));
+    try {
+      show(await api.regenerate(id));
+    } catch (e) {
+      fail(e);
+      if (activeId.current === id) await open(id).catch(() => {});
+    } finally {
+      setThinking(({ [id]: _, ...rest }) => rest);
+      setStreaming(({ [id]: _, ...rest }) => rest);
+      refreshList().catch(() => {});
+    }
+  }
+
   const withConv = (fn: (id: string) => Promise<ConversationView>) => () =>
     conv &&
     attempt(async () => {
@@ -365,6 +391,7 @@ export default function Workspace() {
               live={live}
               onSuggestion={send}
               onChanged={reload}
+              onRegenerate={regenerate}
               onError={fail}
             />
             <Composer
