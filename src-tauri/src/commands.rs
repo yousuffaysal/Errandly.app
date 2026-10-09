@@ -25,13 +25,16 @@ use crate::storage::repo::{self, Grant, StepStatus, TaskStatus, TaskView};
 use crate::storage::sqlite::Db;
 use crate::agents;
 use crate::agents::assets;
+use crate::agents::{ask, pdf_reports};
 use crate::agents::slash::{self, Slash};
 use crate::security::permissions::ensure_within;
 use crate::tools::files::{scan_folder, subfolders, FileEntry};
-use crate::tools::{documents, spreadsheets};
+use crate::tools::{documents, pdf, spreadsheets};
 
 /// Documents summarized per request; more can be named explicitly.
 const MAX_DOCS: usize = 5;
+/// Files attached to one conversation.
+const MAX_ATTACHED: usize = 12;
 
 const MAX_MESSAGE_CHARS: usize = 2000;
 const MAX_INSTRUCTIONS_CHARS: usize = 2000;
@@ -451,6 +454,94 @@ pub fn detach_folder(state: State<'_, AppState>, conversation_id: String) -> Res
     conversation_view(&state.db, &conversation_id)
 }
 
+/// Opens the native file picker and attaches the chosen documents and
+/// spreadsheets to the conversation. Only files chosen here are granted.
+#[tauri::command]
+pub async fn attach_files(app: AppHandle, state: State<'_, AppState>, conversation_id: String) -> Result<ConversationView> {
+    own_conversation(&state.db, &conversation_id)?;
+    let kinds: Vec<&str> = documents::EXTENSIONS.iter().chain(spreadsheets::EXTENSIONS).copied().collect();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Choose files for Errandly to read")
+            .add_filter("Documents and spreadsheets", &kinds)
+            .blocking_pick_files()
+    })
+    .await
+    .map_err(|e| AppError::Invalid(e.to_string()))?;
+    let Some(picked) = picked else { return conversation_view(&state.db, &conversation_id) };
+    let already = conversations::get(&state.db, &conversation_id)?.files.len();
+    if already + picked.len() > MAX_ATTACHED {
+        return Err(AppError::Invalid(format!("a conversation can hold up to {MAX_ATTACHED} files; remove some first")));
+    }
+    for p in picked {
+        let path = canonical_file(&p.into_path().map_err(|e| AppError::Invalid(e.to_string()))?)?;
+        let path = path.display().to_string();
+        repo::upsert_grant(&state.db, &path)?;
+        repo::audit(&state.db, None, "grant", &path)?;
+        conversations::attach_file(&state.db, &conversation_id, &path)?;
+    }
+    conversation_view(&state.db, &conversation_id)
+}
+
+/// Removes a file from this conversation and revokes its grant if no other
+/// conversation still uses it. The file itself is never touched.
+#[tauri::command]
+pub fn detach_file(state: State<'_, AppState>, conversation_id: String, path: String) -> Result<ConversationView> {
+    own_conversation(&state.db, &conversation_id)?;
+    conversations::detach_file(&state.db, &conversation_id, &path)?;
+    if !conversations::file_in_use(&state.db, &path)? {
+        if let Some(grant) = repo::list_grants(&state.db)?.into_iter().find(|g| g.path == path) {
+            repo::delete_grant(&state.db, &grant.id)?;
+            repo::audit(&state.db, None, "revoke", &path)?;
+        }
+    }
+    conversation_view(&state.db, &conversation_id)
+}
+
+/// A picked file, canonicalized: a regular file (not a link) of a kind Errandly reads.
+fn canonical_file(path: &std::path::Path) -> Result<PathBuf> {
+    let meta = std::fs::symlink_metadata(path)?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Err(AppError::Permission(format!("{} isn't a regular file", path.display())));
+    }
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    if !documents::is_document(&ext) && !spreadsheets::is_spreadsheet(&ext) {
+        return Err(AppError::Invalid("Errandly reads PDF, Word, text, Markdown, Excel and CSV files".into()));
+    }
+    Ok(std::fs::canonicalize(path)?)
+}
+
+/// The conversation's attached files that still exist unchanged, as
+/// (name, path, lowercase extension).
+fn attached(conv: &Conversation) -> Vec<(String, PathBuf, String)> {
+    conv.files
+        .iter()
+        .map(PathBuf::from)
+        .filter(|p| canonical_file(p).is_ok_and(|c| c == *p))
+        .map(|p| {
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            (name, p, ext)
+        })
+        .collect()
+}
+
+/// Attached files of a kind: the ones the request names, or else all of them.
+fn pick_attached(files: &[(String, PathBuf, String)], request: &str, is_kind: fn(&str) -> bool) -> Vec<(String, PathBuf)> {
+    let all: Vec<&(String, PathBuf, String)> = files.iter().filter(|f| is_kind(&f.2)).collect();
+    let req = request.to_lowercase();
+    let named: Vec<&(String, PathBuf, String)> = all
+        .iter()
+        .copied()
+        .filter(|f| {
+            let stem = f.0.rsplit_once('.').map(|(s, _)| s).unwrap_or(&f.0).to_lowercase();
+            stem.chars().count() >= 3 && req.contains(&stem)
+        })
+        .collect();
+    (if named.is_empty() { all } else { named }).into_iter().map(|f| (f.0.clone(), f.1.clone())).collect()
+}
+
 async fn pick_and_grant(app: AppHandle, db: &Db) -> Result<Option<Grant>> {
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog().file().set_title("Choose a folder Errandly may organize").blocking_pick_folder()
@@ -576,9 +667,12 @@ async fn respond(
         Some(Slash::MissingText(cmd)) => {
             return Ok(Reply::text(format!("Tell me what to work on after /{}: {}.", cmd.name, cmd.hint.to_lowercase())))
         }
-        None => (router::route(&llm.precise(), text, conv.folder.is_some()).await?, text.to_string(), None),
+        None => (router::route(&llm.precise(), text, conv.folder.is_some() || !conv.files.is_empty()).await?, text.to_string(), None),
     };
     let text = text.as_str();
+    let files = attached(conv);
+    let has_docs = files.iter().any(|f| documents::is_document(&f.2));
+    let has_sheet = files.iter().any(|f| spreadsheets::is_spreadsheet(&f.2));
     if cancel.load(Ordering::Relaxed) {
         return Err(AppError::Cancelled);
     }
@@ -598,11 +692,27 @@ async fn respond(
                 last.1 = task;
             }
             let about = settings::profile(db)?.prompt_context();
-            let system = format!(
+            let mut system = format!(
                 "{} You run locally on the user's Mac as part of Errandly. {}\n\n{about}",
                 persona.voice,
                 router::CHAT_RULES
             );
+            // Attached files: answer from their most relevant passages.
+            if !files.is_empty() {
+                emit(1, "Reading your files".into());
+                let paths: Vec<(String, PathBuf)> = files.iter().map(|f| (f.0.clone(), f.1.clone())).collect();
+                let docs = tauri::async_runtime::spawn_blocking(move || {
+                    paths.into_iter().filter_map(|(n, p)| ask::read_cached(&p).ok().map(|t| (n, t))).collect::<Vec<_>>()
+                })
+                .await
+                .map_err(|e| AppError::Invalid(e.to_string()))?;
+                let excerpts = ask::excerpts(&docs, task.as_deref().unwrap_or(text), ask::BUDGET_CHARS);
+                if !excerpts.is_empty() {
+                    system.push_str("\n\n");
+                    system.push_str(&ask::context_block(&excerpts));
+                }
+                emit(2, "Writing the answer".into());
+            }
             // Replies start with the answer, not "Hi! I'm Ario…", unless the
             // user asked who they're talking to.
             let keep_intro = router::asks_identity(text);
@@ -619,34 +729,54 @@ async fn respond(
             }
             Ok(Reply::text(reply))
         }
-        Intent::SummarizeDocuments | Intent::AnalyzeSpreadsheet | Intent::OrganizeFiles if conv.folder.is_none() => {
+        Intent::OrganizeFiles if conv.folder.is_none() && !files.is_empty() => Ok(Reply::text(
+            "I can read, summarize and answer questions about the files attached here, but I only move or rename \
+             files inside a folder you add. Add one with the + button and I’ll organize it.",
+        )),
+        Intent::SummarizeDocuments | Intent::AnalyzeSpreadsheet | Intent::OrganizeFiles
+            if conv.folder.is_none() && files.is_empty() =>
+        {
             Ok(Reply::text(match intent {
                 Intent::OrganizeFiles => "Happy to bring a little order. Which folder should I work in?",
                 Intent::SummarizeDocuments => "Happy to read through them. Which folder are the documents in?",
                 _ => "Happy to crunch the numbers. Which folder is the spreadsheet in?",
             }
             .to_string()
-                + " Add one with the + button below. I can only see folders you choose."))
+                + " Add a folder or files with the + button below. I can only see what you choose."))
         }
         Intent::SummarizeDocuments => {
-            let (root, files) = granted_files(conv)?;
-            let (picked, total) = pick_files(&files, text, documents::is_document, MAX_DOCS);
+            // Attached documents come first; otherwise the folder's.
+            let (source, picked, total): (String, Vec<(String, PathBuf)>, usize) = if has_docs || conv.folder.is_none() {
+                let all = pick_attached(&files, text, documents::is_document);
+                let total = all.len();
+                ("Attached files".into(), all.into_iter().take(MAX_DOCS).collect(), total)
+            } else {
+                let (root, entries) = granted_files(conv)?;
+                let (picked, total) = pick_files(&entries, text, documents::is_document, MAX_DOCS);
+                let mut chosen = Vec::new();
+                for f in picked {
+                    let path = root.join(&f.name);
+                    ensure_within(&root, &path)?;
+                    chosen.push((f.name, path));
+                }
+                (root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), chosen, total)
+            };
             if picked.is_empty() {
-                return Ok(Reply::text(
-                    "I couldn’t find any documents (PDF, Word, text or Markdown) directly in this folder.",
-                ));
+                return Ok(Reply::text(if conv.folder.is_none() {
+                    "None of the attached files is a document (PDF, Word, text or Markdown). For a spreadsheet, ask me to analyze it."
+                } else {
+                    "I couldn’t find any documents (PDF, Word, text or Markdown) directly in this folder."
+                }));
             }
             emit(1, "Reading the documents".into());
             let (mut docs, mut unreadable) = (Vec::new(), Vec::new());
-            for f in &picked {
-                let path = root.join(&f.name);
-                ensure_within(&root, &path)?;
-                let read = { let p = path.clone(); tauri::async_runtime::spawn_blocking(move || documents::extract_text(&p)) }
+            for (name, path) in &picked {
+                let read = { let p = path.clone(); tauri::async_runtime::spawn_blocking(move || ask::read_cached(&p)) }
                     .await
                     .map_err(|e| AppError::Invalid(e.to_string()))?;
                 match read {
-                    Ok(t) => docs.push((f.name.clone(), t)),
-                    Err(e) => unreadable.push((f.name.clone(), e.to_string())),
+                    Ok(t) => docs.push((name.clone(), t)),
+                    Err(e) => unreadable.push((name.clone(), e.to_string())),
                 }
             }
             if docs.is_empty() {
@@ -662,26 +792,38 @@ async fn respond(
             }
             let mut card = serde_json::to_value(&report).expect("report serializes");
             card["type"] = "documents".into();
-            card["folder"] = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default().into();
+            card["folder"] = source.into();
             Ok(Reply { text: msg, task_id: None, card: Some(card) })
         }
         Intent::AnalyzeSpreadsheet => {
-            let (root, files) = granted_files(conv)?;
-            let (picked, total) = pick_files(&files, text, spreadsheets::is_spreadsheet, 1);
-            let Some(file) = picked.first() else {
-                return Ok(Reply::text("I couldn’t find a spreadsheet (Excel, Numbers export or CSV) directly in this folder."));
+            let (name, path, total) = if has_sheet || conv.folder.is_none() {
+                let all = pick_attached(&files, text, spreadsheets::is_spreadsheet);
+                let Some((name, path)) = all.first().cloned() else {
+                    return Ok(Reply::text(
+                        "None of the attached files is a spreadsheet (Excel or CSV). Attach one with the + button, \
+                         or ask me to summarize the documents instead.",
+                    ));
+                };
+                (name, path, all.len())
+            } else {
+                let (root, entries) = granted_files(conv)?;
+                let (picked, total) = pick_files(&entries, text, spreadsheets::is_spreadsheet, 1);
+                let Some(file) = picked.first() else {
+                    return Ok(Reply::text("I couldn’t find a spreadsheet (Excel, Numbers export or CSV) directly in this folder."));
+                };
+                let path = root.join(&file.name);
+                ensure_within(&root, &path)?;
+                (file.name.clone(), path, total)
             };
-            emit(1, format!("Reading {}", file.name));
-            let path = root.join(&file.name);
-            ensure_within(&root, &path)?;
+            emit(1, format!("Reading {name}"));
             let table = tauri::async_runtime::spawn_blocking(move || spreadsheets::read(&path))
                 .await
                 .map_err(|e| AppError::Invalid(e.to_string()))??;
             emit(2, "Calculating and explaining".into());
-            let report = agents::analyst::analyze_sheet(&llm.precise(), text, &file.name, &table).await?;
-            let mut msg = format!("Here’s {} ({} rows). Every number was calculated directly from the file.", file.name, report.analysis.rows);
+            let report = agents::analyst::analyze_sheet(&llm.precise(), text, &name, &table).await?;
+            let mut msg = format!("Here’s {name} ({} rows). Every number was calculated directly from the file.", report.analysis.rows);
             if total > 1 {
-                msg.push_str(&format!(" There are {total} spreadsheets here; name another to analyze it instead."));
+                msg.push_str(&format!(" There are {total} spreadsheets; name another to analyze it instead."));
             }
             let mut card = serde_json::to_value(&report).expect("report serializes");
             card["type"] = "spreadsheet".into();
@@ -827,6 +969,42 @@ pub async fn export_card(app: AppHandle, state: State<'_, AppState>, message_id:
     };
     let target = tauri::async_runtime::spawn_blocking(move || {
         app.dialog().file().set_file_name(name).add_filter(filter.0, &[filter.1]).blocking_save_file()
+    })
+    .await
+    .map_err(|e| AppError::Invalid(e.to_string()))?;
+    let Some(target) = target else { return Ok(false) };
+    std::fs::write(target.into_path().map_err(|e| AppError::Invalid(e.to_string()))?, bytes)?;
+    Ok(true)
+}
+
+/// Saves a reply as a PDF: a result card as a formatted report, any other
+/// answer (an email, a plan, notes) as a clean document.
+#[tauri::command]
+pub async fn export_pdf(app: AppHandle, state: State<'_, AppState>, message_id: i64) -> Result<bool> {
+    let (conv_id, message) = conversations::message(&state.db, message_id)?.ok_or_else(|| AppError::NotFound("message".into()))?;
+    own_conversation(&state.db, &conv_id)?;
+    let conv = conversations::get(&state.db, &conv_id)?;
+    let card = message.card.as_ref();
+    let doc = match card.and_then(|c| c["type"].as_str()) {
+        Some("documents") => {
+            let c = card.expect("card present");
+            let report: agents::documents::DocReport = serde_json::from_value(c.clone()).map_err(|e| AppError::Invalid(e.to_string()))?;
+            pdf_reports::documents(&report, c["folder"].as_str().unwrap_or("Documents"))
+        }
+        Some("spreadsheet") => {
+            let report: agents::analyst::SheetReport =
+                serde_json::from_value(card.expect("card present").clone()).map_err(|e| AppError::Invalid(e.to_string()))?;
+            pdf_reports::spreadsheet(&report)
+        }
+        _ if message.role == "assistant" && !message.text.trim().is_empty() => pdf_reports::answer(&message.text, &conv.title),
+        _ => return Err(AppError::Invalid("this message can't be saved as a PDF".into())),
+    };
+    let name = format!("{}.pdf", doc.title.replace(['/', ':'], "-").chars().take(80).collect::<String>());
+    let bytes = tauri::async_runtime::spawn_blocking(move || pdf::render(&doc))
+        .await
+        .map_err(|e| AppError::Invalid(e.to_string()))??;
+    let target = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_file_name(name).add_filter("PDF", &["pdf"]).blocking_save_file()
     })
     .await
     .map_err(|e| AppError::Invalid(e.to_string()))?;
@@ -1059,6 +1237,49 @@ mod live {
     }
 
     /// A saved profile reaches the model: `pnpm test:ollama`.
+    /// A question about an attached multi-page PDF is answered from the
+    /// right page, and the answer saves as a PDF.
+    #[test]
+    #[ignore = "needs the local AI runtime"]
+    fn live_ask_attached_pdf() {
+        use crate::tools::pdf::{render, Block, PdfDoc};
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let mut blocks: Vec<Block> = (1..=40)
+            .map(|i| Block::Paragraph(format!("Section {i}. The museum archive keeps routine records of visitors and loans.")))
+            .collect();
+        blocks.push(Block::Heading("Opening hours".into()));
+        blocks.push(Block::Paragraph("The reading room opens at 9:30 on weekdays and closes at 17:00. It is closed on Sundays.".into()));
+        let pdf = render(&PdfDoc { title: "Archive handbook".into(), subtitle: "Test".into(), blocks }).unwrap();
+        let path = root.join("Archive handbook.pdf");
+        std::fs::write(&path, pdf).unwrap();
+
+        let db = Db::open_in_memory().unwrap();
+        let conv = conversations::create(&db, "default", "suf-4").unwrap();
+        repo::upsert_grant(&db, &path.display().to_string()).unwrap();
+        conversations::attach_file(&db, &conv.id, &path.display().to_string()).unwrap();
+        let conv = conversations::get(&db, &conv.id).unwrap();
+        assert_eq!(conv.files.len(), 1);
+        let run = |text: &str| {
+            conversations::add_message(&db, &conv.id, Role::User, text, None).unwrap();
+            let t = std::time::Instant::now();
+            let r = tauri::async_runtime::block_on(respond(
+                &db, &conv, text, &Ollama::for_persona("suf-4"), personas::get("suf-4"), &AtomicBool::new(false),
+                &|s, l| println!("  [stage {s}] {l}"), &|_| {},
+            ))
+            .unwrap();
+            println!("> {text}\n< {} ({:.1?})\n", r.text, t.elapsed());
+            r
+        };
+        let answer = run("What time does the reading room open on weekdays?");
+        assert!(answer.text.contains("9:30"), "{}", answer.text);
+        let summary = run("summarize this");
+        assert_eq!(summary.card.expect("a documents card")["folder"], "Attached files");
+
+        let doc = pdf_reports::answer(&answer.text, "Reading room");
+        assert!(pdf::render(&doc).unwrap().starts_with(b"%PDF"));
+    }
+
     #[test]
     #[ignore]
     fn live_profile_is_used() {

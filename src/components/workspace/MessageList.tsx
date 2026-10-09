@@ -2,8 +2,11 @@ import { Mark } from "../Mark";
 import { forwardRef } from "react";
 import { ArrowUpRight, BookOpen, Folder, LayoutGrid } from "lucide-react";
 import type { Message, ProgressEvent } from "../../types";
-import { ResultCardView } from "../ResultCards";
+import { ResultCardView, SavePdf } from "../ResultCards";
 import { TaskCard } from "../TaskCard";
+
+/** Answers this long (an email, a plan, notes) can be saved as a PDF. */
+const SAVEABLE_CHARS = 280;
 
 const suggestions = [
   { icon: Folder, title: "Bring a little order", text: "Organize a folder of scattered files", prompt: "Help me organize this folder by file type." },
@@ -130,6 +133,11 @@ function MessageItem({ message: m, previous, personaName, initial, onChanged, on
         <div className="ew-message-text">{m.text}</div>
         {m.taskId && <TaskCard taskId={m.taskId} onChanged={onChanged} onError={onError} />}
         {m.card && <ResultCardView card={m.card} messageId={m.id} onError={onError} />}
+        {m.role === "assistant" && !m.card && !m.taskId && m.text.length >= SAVEABLE_CHARS && (
+          <div className="ew-actions">
+            <SavePdf messageId={m.id} onError={onError} />
+          </div>
+        )}
       </article>
     </>
   );

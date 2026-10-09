@@ -1,8 +1,8 @@
-import { ArrowUpRight, Command, Download, Folder, FolderOpen, Plus, ShieldCheck, X } from "lucide-react";
+import { ArrowUpRight, Command, Download, FileText, Folder, FolderOpen, Plus, ShieldCheck, X } from "lucide-react";
 import { basename } from "../../paths";
 import type { Conversation, Persona } from "../../types";
 
-export function ContextPanel({ conv, persona, messageCount, instructions, saved, onInstructions, onAttach, onDetach, onExport, onClose }: {
+export function ContextPanel({ conv, persona, messageCount, instructions, saved, onInstructions, onAttach, onDetach, onAttachFiles, onDetachFile, onExport, onClose }: {
   conv: Conversation;
   persona: Persona | undefined;
   messageCount: number;
@@ -11,6 +11,8 @@ export function ContextPanel({ conv, persona, messageCount, instructions, saved,
   onInstructions: (text: string) => void;
   onAttach: () => void;
   onDetach: () => void;
+  onAttachFiles: () => void;
+  onDetachFile: (path: string) => void;
   onExport: () => void;
   onClose: () => void;
 }) {
@@ -56,6 +58,30 @@ export function ContextPanel({ conv, persona, messageCount, instructions, saved,
             {conv.folder ? "Use a different folder" : "Add a folder to this chat"}
           </button>
         </div>
+        <div className="ew-context-section">
+          <h3>
+            Files<span>{conv.files.length}</span>
+            <button className="ew-icon" onClick={onAttachFiles} aria-label="Add files">
+              <Plus size={15} />
+            </button>
+          </h3>
+          {conv.files.map((f) => (
+            <div className="ew-file" key={f}>
+              <span><FileText size={17} /></span>
+              <div title={f}>
+                {basename(f)}
+                <small>{f}</small>
+              </div>
+              <button aria-label={`Remove ${basename(f)}`} onClick={() => onDetachFile(f)}>
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+          <button className="ew-add-files" onClick={onAttachFiles}>
+            <FileText size={14} />
+            {conv.files.length ? "Add more files" : "Add files to read and ask about"}
+          </button>
+        </div>
         {persona && (
           <div className="ew-context-section">
             <h3>
@@ -90,7 +116,7 @@ export function ContextPanel({ conv, persona, messageCount, instructions, saved,
               Keeping the thread<small>{messageCount} messages in this conversation</small>
             </div>
           </div>
-          <p className="ew-memory-note">Your messages, instructions and folder stay together when you return to this chat.</p>
+          <p className="ew-memory-note">Your messages, instructions, files and folder stay together when you return to this chat.</p>
         </div>
         <button className="ew-export" onClick={onExport}>
           <Download size={14} />

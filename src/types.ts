@@ -62,6 +62,8 @@ export interface Conversation {
   persona: string;
   grantId: string | null;
   folder: string | null;
+  /** Individually attached documents and spreadsheets. */
+  files: string[];
   instructions: string;
   messageCount: number;
   createdAt: string;

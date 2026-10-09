@@ -1,6 +1,6 @@
 [package]
 name = "errandly"
-version = "0.1.4"
+version = "0.1.5"
 description = "Errandly — local-first agentic desktop assistant"
 authors = ["Foxmen Studio"]
 edition = "2021"
@@ -36,6 +36,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 imagesize = "0.15.0"
+genpdf = "0.2"
 
 
 # Keep debug builds small: line tables for our crate, no debug info for deps.
@@ -55,3 +56,8 @@ strip = true
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL"] }
+objc2-pdf-kit = { version = "0.3", default-features = false, features = ["std", "PDFDocument", "PDFPage"] }

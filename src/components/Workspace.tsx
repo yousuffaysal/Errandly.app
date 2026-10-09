@@ -377,6 +377,7 @@ export default function Workspace() {
               onSend={send}
               onStop={() => conv && api.stopConversation(conv.id).catch(fail)}
               onAttach={withConv(api.attachFolder)}
+              onAttachFiles={withConv(api.attachFiles)}
               onPersona={choosePersona}
               onModelsReady={checkAi}
             />
@@ -397,6 +398,8 @@ export default function Workspace() {
           }}
           onAttach={withConv(api.attachFolder)}
           onDetach={withConv(api.detachFolder)}
+          onAttachFiles={withConv(api.attachFiles)}
+          onDetachFile={(path) => withConv((id) => api.detachFile(id, path))()}
           onExport={() => attempt(async () => (await api.exportConversation(conv.id)) && setNotice("Conversation saved."))}
           onClose={() => setContext(false)}
         />

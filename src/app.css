@@ -300,3 +300,12 @@ body { -webkit-font-smoothing: antialiased; }
 .ew-orbit > span .ew-mark-icon { height: 0.5em; width: 0.7em; }
 .ew-persona-mark { display: inline-flex; align-items: center; }
 .ew-persona-mark .ew-mark-icon { height: 0.7em; width: 0.98em; }
+
+/* The + menu: add files or a folder. */
+.ew-add { position: relative; display: inline-flex; }
+.ew-add-menu { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 20; width: 290px; padding: 6px; background: #fffefa; border: 1px solid #dce1d1; border-radius: 10px; box-shadow: 0 10px 30px #2f371f1f; }
+.ew-add-menu button { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px; border-radius: 7px; text-align: left; font-size: 12px; color: var(--ink); }
+.ew-add-menu button:hover, .ew-add-menu button:focus-visible { background: #eff2e6; }
+.ew-add-menu svg { color: #586a45; margin-top: 2px; flex-shrink: 0; }
+.ew-add-menu small { display: block; font-size: 10.5px; color: #686e5b; margin-top: 2px; }
+.ew-actions .ew-followup svg:first-child { color: #586a45; }

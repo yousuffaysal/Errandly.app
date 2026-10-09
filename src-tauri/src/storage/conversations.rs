@@ -19,6 +19,8 @@ pub struct Conversation {
     pub grant_id: Option<String>,
     /// Path of the attached folder, if its grant still exists.
     pub folder: Option<String>,
+    /// Individually attached files whose grants still exist.
+    pub files: Vec<String>,
     pub instructions: String,
     pub message_count: i64,
     pub created_at: String,
@@ -53,7 +55,9 @@ impl Role {
 }
 
 const SELECT: &str = "SELECT c.id, c.workspace_id, c.title, c.persona, c.grant_id, g.path, c.instructions,
-        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id), c.created_at, c.updated_at
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id), c.created_at, c.updated_at,
+        (SELECT group_concat(f.path, char(31)) FROM conversation_files f
+           JOIN permission_grants fg ON fg.path = f.path WHERE f.conversation_id = c.id)
      FROM conversations c LEFT JOIN permission_grants g ON g.id = c.grant_id";
 
 pub fn create(db: &Db, project_id: &str, persona: &str) -> Result<Conversation> {
@@ -254,7 +258,30 @@ fn from_row(r: &Row) -> rusqlite::Result<Conversation> {
         message_count: r.get(7)?,
         created_at: r.get(8)?,
         updated_at: r.get(9)?,
+        files: r
+            .get::<_, Option<String>>(10)?
+            .map(|s| s.split('\u{1f}').map(str::to_owned).collect())
+            .unwrap_or_default(),
     })
+}
+
+/// Attaches a file (already granted) to a conversation.
+pub fn attach_file(db: &Db, id: &str, path: &str) -> Result<()> {
+    db.with(|c| {
+        c.execute("INSERT OR IGNORE INTO conversation_files (conversation_id, path) VALUES (?1, ?2)", params![id, path])?;
+        c.execute(&format!("UPDATE conversations SET updated_at = {NOW} WHERE id = ?1"), [id])
+    })?;
+    Ok(())
+}
+
+pub fn detach_file(db: &Db, id: &str, path: &str) -> Result<()> {
+    db.with(|c| c.execute("DELETE FROM conversation_files WHERE conversation_id = ?1 AND path = ?2", params![id, path]))?;
+    Ok(())
+}
+
+/// True if any conversation still has this file attached.
+pub fn file_in_use(db: &Db, path: &str) -> Result<bool> {
+    db.with(|c| c.query_row("SELECT EXISTS (SELECT 1 FROM conversation_files WHERE path = ?1)", [path], |r| r.get(0)))
 }
 
 fn message_from_row(r: &Row) -> rusqlite::Result<Message> {
@@ -265,6 +292,30 @@ fn message_from_row(r: &Row) -> rusqlite::Result<Message> {
         task_id: r.get(3)?,
         created_at: r.get(4)?,
         card: r.get::<_, Option<String>>(5)?.and_then(|c| serde_json::from_str(&c).ok()),
+    })
+}
+
+/// A message and the conversation it belongs to.
+pub fn message(db: &Db, message_id: i64) -> Result<Option<(String, Message)>> {
+    db.with(|c| {
+        c.query_row(
+            "SELECT conversation_id, id, role, text, task_id, created_at, card FROM messages WHERE id = ?1",
+            [message_id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    Message {
+                        id: r.get(1)?,
+                        role: r.get(2)?,
+                        text: r.get(3)?,
+                        task_id: r.get(4)?,
+                        created_at: r.get(5)?,
+                        card: r.get::<_, Option<String>>(6)?.and_then(|c| serde_json::from_str(&c).ok()),
+                    },
+                ))
+            },
+        )
+        .optional()
     })
 }
 
@@ -308,6 +359,23 @@ mod tests {
         rename(&db, &conv.id, "  Downloads clean-up ").unwrap();
         assert_eq!(get(&db, &conv.id).unwrap().title, "Downloads clean-up");
         assert!(rename(&db, &conv.id, "   ").is_err());
+    }
+
+    #[test]
+    fn files_attach_and_follow_their_grants() {
+        let db = Db::open_in_memory().unwrap();
+        let conv = create(&db, "default", "ario").unwrap();
+        let g = repo::upsert_grant(&db, "/Users/x/Documents/thesis.pdf").unwrap();
+        attach_file(&db, &conv.id, &g.path).unwrap();
+        attach_file(&db, &conv.id, &g.path).unwrap();
+        assert_eq!(get(&db, &conv.id).unwrap().files, vec!["/Users/x/Documents/thesis.pdf"]);
+        assert!(file_in_use(&db, &g.path).unwrap());
+        repo::delete_grant(&db, &g.id).unwrap();
+        assert!(get(&db, &conv.id).unwrap().files.is_empty(), "revoking access hides the file");
+        let g = repo::upsert_grant(&db, "/Users/x/a.txt").unwrap();
+        attach_file(&db, &conv.id, &g.path).unwrap();
+        detach_file(&db, &conv.id, &g.path).unwrap();
+        assert!(get(&db, &conv.id).unwrap().files.is_empty());
     }
 
     #[test]

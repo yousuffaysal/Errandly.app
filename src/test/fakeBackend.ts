@@ -19,7 +19,7 @@ export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: s
   };
   const preferences = { defaultPersona: "ario", textSize: "medium", width: "medium", motion: "system", crashReports: false, autoUpdate: false, usageStats: false };
   const conv: Conversation = {
-    id: "c1", projectId: "p1", title: "A fresh start", persona: "ario", grantId: null, folder: null,
+    id: "c1", projectId: "p1", title: "A fresh start", persona: "ario", grantId: null, folder: null, files: [],
     instructions: "", messageCount: 0, createdAt: "2026-10-08T10:00:00Z", updatedAt: "2026-10-08T10:00:00Z",
   };
   const messages: Message[] = [];
@@ -61,6 +61,11 @@ export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: s
           messages.push({ id: nextId++, role: "assistant", text: r.text, taskId: null, card: r.card ?? null, createdAt: now });
           return view();
         }
+        case "attach_files":
+          conv.files = ["/Users/x/Documents/Lecture 4.pdf"];
+          return view();
+        case "export_pdf":
+          return true;
         case "storage_report":
           return { database: 2_000_000, models: 2_500_000_000, cache: 1_000, available: 16_000_000_000, dataDir: "~/x" };
         case "list_grants":

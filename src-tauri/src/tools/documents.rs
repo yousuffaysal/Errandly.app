@@ -33,11 +33,29 @@ pub fn extract_text(path: &Path) -> Result<String> {
 }
 
 fn pdf(path: &Path) -> Result<String> {
+    // Apple's PDFKit (the engine behind Preview) reads every page reliably;
+    // the pure-Rust reader is the fallback.
+    #[cfg(target_os = "macos")]
+    if let Some(text) = pdfkit_text(path).filter(|t| !t.trim().is_empty()) {
+        return Ok(text);
+    }
     let path = path.to_path_buf();
     // The PDF parser can panic on malformed files; contain it to this file.
     std::panic::catch_unwind(move || pdf_extract::extract_text(&path))
         .map_err(|_| AppError::Invalid("this PDF couldn't be read".into()))?
         .map_err(|e| AppError::Invalid(format!("this PDF couldn't be read: {e}")))
+}
+
+#[cfg(target_os = "macos")]
+fn pdfkit_text(path: &Path) -> Option<String> {
+    use objc2::AllocAnyThread;
+    use objc2_foundation::{NSString, NSURL};
+    use objc2_pdf_kit::PDFDocument;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?));
+    // SAFETY: plain PDFKit calls on a local file URL; PDFDocument is safe to use off the main thread.
+    let doc = unsafe { PDFDocument::initWithURL(PDFDocument::alloc(), &url) }?;
+    let text = unsafe { doc.string() }?;
+    Some(text.to_string())
 }
 
 fn docx(path: &Path) -> Result<String> {

@@ -103,6 +103,15 @@ CREATE INDEX workspaces_by_owner ON workspaces (owner);
 "#, r#"
 -- Results shown as cards in the chat (document summaries, spreadsheet reports), as JSON.
 ALTER TABLE messages ADD COLUMN card TEXT;
+"#, r#"
+-- Individual files attached to a conversation (each one granted through the
+-- native file picker, like folders).
+CREATE TABLE conversation_files (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    path            TEXT NOT NULL,
+    added_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    PRIMARY KEY (conversation_id, path)
+);
 "#];
 
 /// The database holds chats, the profile and the sign-in session, so only this

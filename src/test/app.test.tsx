@@ -55,6 +55,22 @@ describe("Errandly smoke tests", () => {
     expect(screen.getByRole("button", { name: /Save as Excel report/ })).toBeInTheDocument();
   });
 
+  it("attaches a file from the + menu and saves an answer as PDF", async () => {
+    const plan = "Here is a study plan for the week.\n\n" + "1. Read the lecture notes and highlight the key terms.\n".repeat(6);
+    const { calls } = fakeBackend({ profileCompleted: true, reply: () => ({ text: plan }) });
+    render(<Workspace />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add files or a folder" }));
+    await user.click(screen.getByRole("menuitem", { name: /Add files/ }));
+    await waitFor(() => expect(calls.some((c) => c.cmd === "attach_files")).toBe(true));
+    expect((await screen.findAllByText("Lecture 4.pdf")).length).toBeGreaterThan(0);
+
+    await user.type(screen.getByLabelText("Message Errandly"), "make me a study plan from this{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Save as PDF" }));
+    await waitFor(() => expect(calls.find((c) => c.cmd === "export_pdf")?.args).toMatchObject({ messageId: 2 }));
+    expect(await screen.findByText("PDF saved")).toBeInTheDocument();
+  });
+
   it("the / menu finds a command and sends it", async () => {
     const { calls } = fakeBackend({ profileCompleted: true });
     render(<Workspace />);

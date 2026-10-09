@@ -1,11 +1,22 @@
 import { useState } from "react";
-import { AlertTriangle, ArrowUpRight, Check, FileText, LayoutGrid, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, FileDown, FileText, LayoutGrid, ShieldCheck } from "lucide-react";
 import { api } from "../api";
 import type { DocumentsCard, ResultCard, SpreadsheetCard } from "../types";
 
 // The design's report colours, extended in the same family.
 const COLORS = ["#7e9065", "#b0bd99", "#d1c7a9", "#dfe3d4", "#94a27f", "#c4cfb2", "#b9ad8c", "#e9ece0"];
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+/** Saves a reply (a result card or a written answer) as a formatted PDF. */
+export function SavePdf({ messageId, onError }: { messageId: number; onError: (e: unknown) => void }) {
+  const [saved, setSaved] = useState(false);
+  return (
+    <button className="ew-followup" onClick={() => api.exportPdf(messageId).then((ok) => ok && setSaved(true), onError)}>
+      {saved ? <Check size={13} /> : <FileDown size={13} />}
+      {saved ? "PDF saved" : "Save as PDF"}
+    </button>
+  );
+}
 
 /** A result card from the document or spreadsheet agent, with Save. */
 export function ResultCardView({ card, messageId, onError }: { card: ResultCard; messageId: number; onError: (e: unknown) => void }) {
@@ -21,6 +32,7 @@ export function ResultCardView({ card, messageId, onError }: { card: ResultCard;
           {saved ? "Saved" : card.type === "documents" ? "Save as Markdown" : "Save as Excel report"}
           <ArrowUpRight size={14} />
         </button>
+        <SavePdf messageId={messageId} onError={onError} />
       </div>
     </>
   );
