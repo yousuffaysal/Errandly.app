@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "errandly"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "calamine",
  "csv",
