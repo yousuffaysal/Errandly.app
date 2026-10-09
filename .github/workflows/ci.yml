@@ -50,4 +50,8 @@ jobs:
         with:
           tool: cargo-audit
       - name: Dependency audit (Rust)
-        run: cargo audit --file src-tauri/Cargo.lock
+        # RUSTSEC-2026-0187 (lopdf < 0.42 stack overflow when *parsing* a crafted
+        # PDF) only affects lopdf 0.26 pulled in by genpdf, which writes PDFs
+        # and never parses one. PDFs are read with PDFKit and pdf-extract,
+        # whose lopdf (0.42) is patched.
+        run: cargo audit --file src-tauri/Cargo.lock --ignore RUSTSEC-2026-0187
