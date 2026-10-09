@@ -1,3 +1,4 @@
+import { Mark } from "./Mark";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Check } from "lucide-react";
 import type { Persona, Profile } from "../types";
@@ -108,7 +109,7 @@ export function Onboarding({ initialName, personas, onFinish }: {
       <div className="ew-onboarding-scroll">
         <div className="ew-conversation">
           <div className="ew-welcome ew-onboarding-head">
-            <span className="ew-flower">✳</span>
+            <span className="ew-flower"><Mark /></span>
             <p>GETTING TO KNOW YOU</p>
             <h1>A little about you.</h1>
             <div>Seven quick questions, so Errandly can help like a real personal assistant.<br />Your answers stay on this Mac.</div>
@@ -118,7 +119,7 @@ export function Onboarding({ initialName, personas, onFinish }: {
             <div key={s.field}>
               <article className="ew-message ew-assistant">
                 <div className="ew-message-label">
-                  <span className="ew-small-mark">✳</span>
+                  <span className="ew-small-mark"><Mark /></span>
                   <strong>Errandly</strong>
                   <small>Your thinking partner</small>
                 </div>
@@ -139,7 +140,7 @@ export function Onboarding({ initialName, personas, onFinish }: {
           {done && (
             <article className="ew-message ew-assistant">
               <div className="ew-message-label">
-                <span className="ew-small-mark">✳</span>
+                <span className="ew-small-mark"><Mark /></span>
                 <strong>Errandly</strong>
                 <small>Your thinking partner</small>
               </div>
@@ -149,7 +150,7 @@ export function Onboarding({ initialName, personas, onFinish }: {
               <div className="ew-report ew-profile-card">
                 <div className="ew-report-heading">
                   <div>
-                    <span className="ew-report-icon">✳</span>
+                    <span className="ew-report-icon"><Mark /></span>
                     <strong>
                       {profile.name || "You"}
                       <small>{[profile.role, profile.work].filter(Boolean).join(" · ") || "Your profile"}</small>
@@ -167,7 +168,7 @@ export function Onboarding({ initialName, personas, onFinish }: {
                 </div>
                 {recommended && (
                   <div className="ew-report-foot">
-                    ✳ I’ll pair you with <b>&nbsp;{recommended.name}</b>, {recommended.tagline.toLowerCase()}. You can switch models in any chat.
+                    <Mark /> I’ll pair you with <b>&nbsp;{recommended.name}</b>, {recommended.tagline.toLowerCase()}. You can switch models in any chat.
                   </div>
                 )}
               </div>

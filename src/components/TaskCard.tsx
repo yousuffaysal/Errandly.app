@@ -1,3 +1,4 @@
+import { Mark } from "./Mark";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, Check, FolderTree, RotateCcw, ShieldCheck } from "lucide-react";
 import { api } from "../api";
@@ -144,7 +145,7 @@ export function TaskCard({ taskId, onChanged, onError }: {
 
       {working === "moving" ? (
         <div className="ew-thinking ew-thinking-inline" role="status" aria-live="polite">
-          <div className="ew-orbit"><i /><i /><i /><span>✳</span></div>
+          <div className="ew-orbit"><i /><i /><i /><span><Mark /></span></div>
           <div>
             <strong>Moving files<span className="ew-dots"><i /><i /><i /></span></strong>
             <p>Each move is recorded first, so it can be undone.</p>

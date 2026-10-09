@@ -284,3 +284,19 @@ body { -webkit-font-smoothing: antialiased; }
 .ew-slash-item em { font-style: normal; font-size: 10px; color: #9a5b1c; display: inline-flex; gap: 3px; align-items: center; white-space: nowrap; }
 .ew-slash-empty { font-size: 12px; color: #5f6655; padding: 8px 10px; }
 @media (max-width: 650px) { .ew-slash { left: 15px; right: 15px; } }
+
+/* Errandly's pillar mark, replacing the ✳ (see components/Mark.tsx). It's
+   wider than tall (about 1.4 : 1), so it's sized by height. */
+.ew-mark-icon {
+  display: inline-block; height: 0.8em; width: 1.12em; vertical-align: middle;
+  background-color: currentColor;
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.ew .ew-small-mark { width: auto; display: inline-flex; align-items: center; }
+.ew-small-mark .ew-mark-icon { height: 0.66em; width: 0.92em; }
+.ew-orbit > span { display: inline-flex; }
+.ew-orbit > span .ew-mark-icon { height: 0.5em; width: 0.7em; }
+.ew-persona-mark { display: inline-flex; align-items: center; }
+.ew-persona-mark .ew-mark-icon { height: 0.7em; width: 0.98em; }

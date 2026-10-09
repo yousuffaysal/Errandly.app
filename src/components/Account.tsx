@@ -1,3 +1,4 @@
+import { Mark } from "./Mark";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { LogIn, LogOut, Settings, X } from "lucide-react";
@@ -138,7 +139,7 @@ export function AuthDialog({ onClose }: { onClose: () => void }) {
         <button className="ew-icon ew-modal-close" onClick={onClose} aria-label="Close">
           <X size={16} />
         </button>
-        <span className="ew-flower ew-modal-flower">✳</span>
+        <span className="ew-flower ew-modal-flower"><Mark /></span>
         <h2 id="auth-title">{titles[mode][0]}</h2>
         <p className="ew-modal-sub">{titles[mode][1]}</p>
         {mode !== "reset" && (

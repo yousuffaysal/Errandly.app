@@ -1,3 +1,4 @@
+import { Mark } from "../Mark";
 import { forwardRef } from "react";
 import { ArrowUpRight, BookOpen, Folder, LayoutGrid } from "lucide-react";
 import type { Message, ProgressEvent } from "../../types";
@@ -31,7 +32,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function
       <div className="ew-conversation">
         {!messages ? null : messages.length === 0 && !busy ? (
           <div className="ew-welcome">
-            <span className="ew-flower">✳</span>
+            <span className="ew-flower"><Mark /></span>
             <p>A LITTLE SPACE TO THINK</p>
             <h1>What’s on your mind?</h1>
             <div>
@@ -66,7 +67,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function
         {busy && live && (
           <article className="ew-message ew-assistant">
             <div className="ew-message-label">
-              <span className="ew-small-mark">✳</span>
+              <span className="ew-small-mark"><Mark /></span>
               <strong>{personaName}</strong>
               <small>Your thinking partner</small>
             </div>
@@ -79,7 +80,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function
               <i />
               <i />
               <i />
-              <span>✳</span>
+              <span><Mark /></span>
             </div>
             <div>
               <strong>
@@ -122,7 +123,7 @@ function MessageItem({ message: m, previous, personaName, initial, onChanged, on
       )}
       <article className={`ew-message ew-${m.role}`}>
         <div className="ew-message-label">
-          {m.role === "user" ? <span className="ew-small-avatar">{initial}</span> : <span className="ew-small-mark">✳</span>}
+          {m.role === "user" ? <span className="ew-small-avatar">{initial}</span> : <span className="ew-small-mark"><Mark /></span>}
           <strong>{m.role === "user" ? "You" : personaName}</strong>
           <small>{m.role === "user" ? "" : "Your thinking partner"}</small>
         </div>

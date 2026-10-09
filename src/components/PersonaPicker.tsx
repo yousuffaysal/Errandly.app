@@ -1,3 +1,4 @@
+import { Mark } from "./Mark";
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Sparkles } from "lucide-react";
 import type { Persona } from "../types";
@@ -54,7 +55,7 @@ export function PersonaPicker({ personas, value, onChange }: {
                 setOpen(false);
               }}
             >
-              <span className="ew-persona-mark">✳</span>
+              <span className="ew-persona-mark"><Mark /></span>
               <span className="ew-persona-body">
                 <strong>
                   {p.name} <small>{p.tagline}</small>

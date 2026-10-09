@@ -1,3 +1,4 @@
+import { Mark } from "./Mark";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { reportCrash } from "../crash";
 
@@ -21,7 +22,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
     return (
       <div className="ew ew-crash">
         <div className="ew-modal">
-          <span className="ew-flower ew-modal-flower">✳</span>
+          <span className="ew-flower ew-modal-flower"><Mark /></span>
           <h2>Something went wrong.</h2>
           <p className="ew-modal-sub">
             Errandly hit an unexpected problem. Your conversations and files are safe. They’re stored on this Mac and
