@@ -267,3 +267,20 @@ body { -webkit-font-smoothing: antialiased; }
 /* Onboarding: opt-in usage sharing */
 .ew-share-usage { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 0 32px; font-size: 11.5px; color: #4d5446; line-height: 1.6; cursor: pointer; }
 .ew-share-usage input { margin-top: 3px; accent-color: #4a5a35; }
+
+/* Slash command menu */
+.ew-compose-wrap { position: relative; }
+.ew-slash {
+  position: absolute; z-index: 30; left: 40px; right: 40px; bottom: calc(100% - 6px);
+  max-height: 360px; overflow-y: auto; background: #fbfbf7; border: 1px solid #dfe2d7;
+  border-radius: 12px; padding: 8px; box-shadow: 0 18px 50px #33351f24;
+}
+.ew .ew-slash-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border-radius: 8px; text-align: left; }
+.ew .ew-slash-item.is-active { background: #eff2e6; }
+.ew-slash-item code { font-size: 12px; color: #3c4a2b; background: #e8ecdd; border-radius: 5px; padding: 2px 7px; min-width: 92px; }
+.ew-slash-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ew-slash-text strong { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.ew-slash-text small { font-size: 11px; color: #5f6655; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ew-slash-item em { font-style: normal; font-size: 10px; color: #9a5b1c; display: inline-flex; gap: 3px; align-items: center; white-space: nowrap; }
+.ew-slash-empty { font-size: 12px; color: #5f6655; padding: 8px 10px; }
+@media (max-width: 650px) { .ew-slash { left: 15px; right: 15px; } }

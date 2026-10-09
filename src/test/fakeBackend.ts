@@ -70,6 +70,12 @@ export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: s
           return null;
         case "unsent_crashes":
           return [];
+        case "list_commands":
+          return [
+            { name: "organize", title: "Organize folder", hint: "Sort the attached folder", takesText: false, needsFolder: true },
+            { name: "email", title: "Write an email", hint: "A ready-to-send email", takesText: true, needsFolder: false },
+            { name: "explain", title: "Explain simply", hint: "A clear explanation", takesText: true, needsFolder: false },
+          ];
         case "usage_pending":
           return { installId: "test", version: "0.0.0", days: [] };
         default:

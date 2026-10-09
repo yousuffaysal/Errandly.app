@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowUp, FolderOpen, Plus, Square, X } from "lucide-react";
 import { basename } from "../../paths";
 import type { AiStatus, Conversation } from "../../types";
 import { ModelSetup } from "../ModelSetup";
 import { PersonaPicker } from "../PersonaPicker";
+import { matching, SlashMenu, slashQuery, useSlashCommands, type SlashCommand } from "./SlashMenu";
 
 export function Composer({ conv, ai, modelReady, busy, notice, onDismissNotice, onSend, onStop, onAttach, onPersona, onModelsReady }: {
   conv: Conversation | undefined;
@@ -19,10 +20,30 @@ export function Composer({ conv, ai, modelReady, busy, notice, onDismissNotice, 
   onModelsReady: () => void;
 }) {
   const [input, setInput] = useState("");
-  const send = () => {
-    if (!input.trim() || busy) return;
-    onSend(input);
+  const [active, setActive] = useState(0);
+  const [menuClosed, setMenuClosed] = useState(false);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const commands = useSlashCommands();
+  const query = slashQuery(input);
+  const options = query === null ? [] : matching(commands, query);
+  const menuOpen = query !== null && !menuClosed;
+
+  const send = (text = input) => {
+    if (!text.trim() || busy) return;
+    onSend(text);
     setInput("");
+  };
+
+  // Commands that work on the folder run straight away; writing commands
+  // wait for the text to work on.
+  const pick = (c: SlashCommand) => {
+    if (c.takesText) {
+      setInput(`/${c.name} `);
+      box.current?.focus();
+    } else {
+      send(`/${c.name}`);
+    }
+    setActive(0);
   };
 
   return (
@@ -36,6 +57,9 @@ export function Composer({ conv, ai, modelReady, busy, notice, onDismissNotice, 
         </div>
       )}
       {ai && !modelReady && <ModelSetup ai={ai} onDone={onModelsReady} />}
+      {menuOpen && (
+        <SlashMenu commands={options} active={active} hasFolder={Boolean(conv?.folder)} onPick={pick} onHover={setActive} />
+      )}
       <form
         className={`ew-compose ${busy ? "is-thinking" : ""}`}
         onSubmit={(e) => {
@@ -45,10 +69,33 @@ export function Composer({ conv, ai, modelReady, busy, notice, onDismissNotice, 
       >
         <textarea
           aria-label="Message Errandly"
-          placeholder="A question, a task, a little less on your plate…"
+          placeholder="A question, a task, or type / for commands…"
+          ref={box}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setActive(0);
+            setMenuClosed(false);
+          }}
           onKeyDown={(e) => {
+            if (menuOpen && options.length > 0) {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                const step = e.key === "ArrowDown" ? 1 : -1;
+                setActive((a) => (a + step + options.length) % options.length);
+                return;
+              }
+              if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+                e.preventDefault();
+                pick(options[Math.min(active, options.length - 1)]);
+                return;
+              }
+            }
+            if (menuOpen && e.key === "Escape") {
+              e.preventDefault();
+              setMenuClosed(true);
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               send();

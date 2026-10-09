@@ -66,6 +66,7 @@ pub fn run() {
             commands::ai_status,
             commands::install_models,
             commands::get_settings,
+            commands::list_commands,
             commands::usage_pending,
             commands::usage_sent,
             commands::save_profile,

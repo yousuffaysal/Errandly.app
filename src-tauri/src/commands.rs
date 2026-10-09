@@ -25,6 +25,7 @@ use crate::storage::repo::{self, Grant, StepStatus, TaskStatus, TaskView};
 use crate::storage::sqlite::Db;
 use crate::agents;
 use crate::agents::assets;
+use crate::agents::slash::{self, Slash};
 use crate::security::permissions::ensure_within;
 use crate::tools::files::{scan_folder, subfolders, FileEntry};
 use crate::tools::{documents, spreadsheets};
@@ -334,6 +335,12 @@ pub fn usage_sent(state: State<'_, AppState>, day: String) -> Result<()> {
     usage::mark_sent(&state.db, &day)
 }
 
+/// The slash commands, for the "/" menu.
+#[tauri::command]
+pub fn list_commands() -> &'static [slash::Command] {
+    slash::COMMANDS
+}
+
 // ---- projects -------------------------------------------------------------
 
 #[tauri::command]
@@ -561,7 +568,17 @@ async fn respond(
     on_reply: &(dyn Fn(&str) + Sync),
 ) -> Result<Reply> {
     emit(0, "Understanding your request".into());
-    let intent = router::route(&llm.precise(), text, conv.folder.is_some()).await?;
+    // A slash command says exactly what to do; otherwise the router decides.
+    let (intent, text, task) = match slash::parse(text) {
+        Some(Slash::Files(intent, request)) => (intent, request, None),
+        Some(Slash::Write(task)) => (Intent::Chat, text.to_string(), Some(task)),
+        Some(Slash::Unknown(name)) => return Ok(Reply::text(slash::help(&name))),
+        Some(Slash::MissingText(cmd)) => {
+            return Ok(Reply::text(format!("Tell me what to work on after /{}: {}.", cmd.name, cmd.hint.to_lowercase())))
+        }
+        None => (router::route(&llm.precise(), text, conv.folder.is_some()).await?, text.to_string(), None),
+    };
+    let text = text.as_str();
     if cancel.load(Ordering::Relaxed) {
         return Err(AppError::Cancelled);
     }
@@ -575,7 +592,11 @@ async fn respond(
                 .skip(all.len().saturating_sub(CHAT_HISTORY))
                 .map(|m| (m.role.clone(), m.text.chars().take(MAX_HISTORY_CHARS).collect()))
                 .collect();
-            let history: Vec<(&str, &str)> = recent.iter().map(|(r, t)| (r.as_str(), t.as_str())).collect();
+            let mut history: Vec<(&str, &str)> = recent.iter().map(|(r, t)| (r.as_str(), t.as_str())).collect();
+            // For a writing command, the model sees the precise task, not "/email …".
+            if let (Some(task), Some(last)) = (task.as_deref(), history.last_mut()) {
+                last.1 = task;
+            }
             let about = settings::profile(db)?.prompt_context();
             let system = format!(
                 "{} You run locally on the user's Mac as part of Errandly. {}\n\n{about}",
@@ -1126,6 +1147,31 @@ mod live {
                     ),
                 }
             }
+        }
+    }
+
+    /// Slash writing commands against the real model: `pnpm test:ollama`.
+    #[test]
+    #[ignore]
+    fn live_slash_commands() {
+        let db = Db::open_in_memory().unwrap();
+        let conv = conversations::create(&db, "default", "ario").unwrap();
+        for q in [
+            "/improve hi sir i cant come tomorow because i am sick sorry",
+            "/translate to Bangla: Thank you for your help today.",
+            "/plan learn basic Excel in one week",
+            "/email",
+            "/dance",
+        ] {
+            conversations::add_message(&db, &conv.id, Role::User, q, None).unwrap();
+            let c = conversations::get(&db, &conv.id).unwrap();
+            let t = std::time::Instant::now();
+            let r = tauri::async_runtime::block_on(respond(
+                &db, &c, q, &Ollama::for_persona("ario"), personas::get("ario"), &AtomicBool::new(false), &|_, _| {}, &|_| {},
+            ))
+            .unwrap();
+            println!("\n> {q}\n< {} ({:.1?})", r.text, t.elapsed());
+            conversations::add_message(&db, &conv.id, Role::Assistant, &r.text, None).unwrap();
         }
     }
 }

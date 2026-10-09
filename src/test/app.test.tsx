@@ -55,6 +55,25 @@ describe("Errandly smoke tests", () => {
     expect(screen.getByRole("button", { name: /Save as Excel report/ })).toBeInTheDocument();
   });
 
+  it("the / menu finds a command and sends it", async () => {
+    const { calls } = fakeBackend({ profileCompleted: true });
+    render(<Workspace />);
+    const user = userEvent.setup();
+    const box = await screen.findByLabelText("Message Errandly");
+    await user.type(box, "/");
+    expect(await screen.findByRole("listbox", { name: "Commands" })).toBeInTheDocument();
+    expect(screen.getByText("/organize")).toBeInTheDocument();
+
+    await user.type(box, "em");
+    expect(screen.queryByText("/organize")).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(box).toHaveValue("/email ");
+    await user.type(box, "ask my professor for two more days{Enter}");
+    await waitFor(() =>
+      expect(calls.find((c) => c.cmd === "send_message")?.args).toMatchObject({ text: "/email ask my professor for two more days" }),
+    );
+  });
+
   it("opens Settings with ⌘, and shows storage", async () => {
     const { calls } = fakeBackend({ profileCompleted: true });
     render(<Workspace />);
