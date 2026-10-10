@@ -22,13 +22,24 @@ export type StepStatus =
 
 export type Step =
   | { seq: number; op: "create_folder"; path: string; status: StepStatus; error: string | null }
-  | { seq: number; op: "move_file"; from: string; to: string; status: StepStatus; error: string | null };
+  | { seq: number; op: "move_file"; from: string; to: string; status: StepStatus; error: string | null }
+  | { seq: number; op: "trash_file"; from: string; to: string; status: StepStatus; error: string | null };
+
+export interface CleanReason {
+  group: string;
+  detail: string;
+  size: number;
+}
 
 export interface PlanMeta {
   categories: string[];
   scannedFiles: number;
   leftInPlace: string[];
   rejectedOutputs: number;
+  /** "clean" for a cleanup plan (files go to the Trash). */
+  kind?: string;
+  reasons?: Record<string, CleanReason>;
+  freedBytes?: number;
 }
 
 export interface Task {

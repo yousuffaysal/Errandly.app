@@ -110,6 +110,25 @@ fn run_step(db: &Db, task_id: &str, seq: i64, root: &Path, op: &Operation) -> Re
                 Err(e) => Err(e.into()),
             }
         }
+        Operation::TrashFile { from, to } => {
+            let meta = std::fs::symlink_metadata(from)?;
+            if !meta.file_type().is_file() {
+                return Err(AppError::Permission(format!("{} is no longer a regular file", from.display())));
+            }
+            // The Trash may already hold a file with this name.
+            let mut op = op.clone();
+            if std::fs::symlink_metadata(to).is_ok() {
+                let dir = to.parent().expect("validated trash path has a parent");
+                let name = to.file_name().and_then(|n| n.to_str()).expect("planned names are UTF-8");
+                op = Operation::TrashFile { from: from.clone(), to: unique_destination(dir, name, &Default::default()) };
+                validate_operation(root, &op)?;
+            }
+            let Operation::TrashFile { to, .. } = &op else { unreachable!() };
+            repo::update_step(db, task_id, seq, StepStatus::Started, &op, None)?;
+            move_no_overwrite(from, to)?;
+            repo::update_step(db, task_id, seq, StepStatus::Done, &op, None)?;
+            Ok(StepStatus::Done)
+        }
         Operation::MoveFile { from, to } => {
             let meta = std::fs::symlink_metadata(from)?;
             if !meta.file_type().is_file() {
@@ -143,7 +162,7 @@ pub fn reconcile_interrupted(db: &Db) -> Result<usize> {
                 StepStatus::Started => {
                     let happened = match &step.op {
                         Operation::CreateFolder { path } => path.is_dir(),
-                        Operation::MoveFile { from, to } => to.exists() && !from.exists(),
+                        Operation::MoveFile { from, to } | Operation::TrashFile { from, to } => to.exists() && !from.exists(),
                     };
                     if happened { (StepStatus::Done, None) } else { (StepStatus::Failed, Some("interrupted")) }
                 }
@@ -181,7 +200,7 @@ pub fn undo(db: &Db, task_id: &str) -> Result<Outcome> {
     let mut outcome = Outcome::default();
     for step in task.steps.iter().rev().filter(|s| s.status == StepStatus::Done) {
         let result = validate_operation(root, &step.op).and_then(|_| match &step.op {
-            Operation::MoveFile { from, to } => {
+            Operation::MoveFile { from, to } | Operation::TrashFile { from, to } => {
                 if std::fs::symlink_metadata(from).is_ok() {
                     return Err(AppError::Invalid(format!("{} is occupied", from.display())));
                 }

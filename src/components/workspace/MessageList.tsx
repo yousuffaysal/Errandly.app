@@ -1,6 +1,6 @@
 import { Mark } from "../Mark";
 import { forwardRef, useState } from "react";
-import { ArrowUpRight, BookOpen, Check, Copy, Folder, LayoutGrid, RotateCcw } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, Copy, Folder, RotateCcw, ScanText, Trash2 } from "lucide-react";
 import type { Message, ProgressEvent } from "../../types";
 import { ResultCardView, SavePdf } from "../ResultCards";
 import { TaskCard } from "../TaskCard";
@@ -11,8 +11,9 @@ const SAVEABLE_CHARS = 280;
 
 const suggestions = [
   { icon: Folder, title: "Bring a little order", text: "Organize a folder of scattered files", prompt: "Help me organize this folder by file type." },
+  { icon: Trash2, title: "Free up some space", text: "Duplicates, old installers and leftovers", prompt: "Clean up this folder: find duplicates and leftovers I can trash." },
+  { icon: ScanText, title: "Name what’s inside", text: "Rename scans and vague files by content", prompt: "Rename the files with unclear names, based on what’s inside them." },
   { icon: BookOpen, title: "Find the useful parts", text: "Turn long documents into clear notes", prompt: "Summarize the documents in this folder." },
-  { icon: LayoutGrid, title: "Make the numbers click", text: "Build a report from your spreadsheets", prompt: "Analyze the spreadsheets in this folder." },
 ];
 export const STAGES = ["Understanding your request", "Working on it", "Putting it together"];
 

@@ -12,6 +12,11 @@ What it does today (the PRD's three P0 workflows):
 | "Organize this folder by file type" | A plan of folders and moves → you approve → files move → checked on disk → undo anytime |
 | "Summarize the documents in this folder" | PDF, Word, text and Markdown files are read locally and summarized; save as Markdown |
 | "Analyze the sales spreadsheet" | Excel/CSV totals and groupings **calculated by code**; the model only explains them; save as an Excel report with a chart |
+| "Rename my scans" (`/rename`) | Files with meaningless names (`scan_0034.pdf`, `IMG_4821.png`) are read and renamed after their contents, e.g. `Invoice - Acme Corporation - 2026-03-14.pdf`; only details found in the file make it into the name |
+| "Clean my Downloads" (`/clean`) | Exact duplicates, installers for apps already installed (or 30+ days old), archives already unzipped and unfinished downloads go **to the Trash**, each with its reason; Undo brings them back |
+
+Scanned PDFs and images of text (PNG, JPG, HEIC, …) are read with Apple's Vision text
+recognition, on the Mac, so they can be summarized, asked about and renamed too.
 
 Each message is routed to the right agent; anything else is a normal chat with
 one of four local models. Work happens only in folders you add to a conversation.

@@ -1,9 +1,11 @@
 pub mod analyst;
 pub mod ask;
 pub mod assets;
+pub mod cleaner;
 pub mod documents;
 pub mod executor;
 pub mod pdf_reports;
+pub mod renamer;
 pub mod plan;
 pub mod planner;
 pub mod router;

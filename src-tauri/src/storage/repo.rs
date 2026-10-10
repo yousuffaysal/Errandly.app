@@ -234,6 +234,7 @@ pub fn steps(db: &Db, task_id: &str) -> Result<Vec<Step>> {
                 let op = match (kind.as_str(), src) {
                     ("create_folder", _) => Operation::CreateFolder { path: dst },
                     ("move_file", Some(src)) => Operation::MoveFile { from: src.into(), to: dst },
+                    ("trash_file", Some(src)) => Operation::TrashFile { from: src.into(), to: dst },
                     _ => {
                         return Err(rusqlite::Error::InvalidColumnType(
                             1,
@@ -314,6 +315,11 @@ fn op_columns(op: &Operation) -> (&'static str, Option<String>, String) {
         Operation::CreateFolder { path } => ("create_folder", None, path.display().to_string()),
         Operation::MoveFile { from, to } => (
             "move_file",
+            Some(from.display().to_string()),
+            to.display().to_string(),
+        ),
+        Operation::TrashFile { from, to } => (
+            "trash_file",
             Some(from.display().to_string()),
             to.display().to_string(),
         ),

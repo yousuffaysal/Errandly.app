@@ -11,7 +11,8 @@ use crate::error::Result;
 
 const SYSTEM: &str = "You route messages for Errandly, an assistant that runs locally on the user's Mac. \
 Classify the user's message into one intent:\n\
-- organize_files: sorting, tidying, moving, grouping or cleaning up files or folders\n\
+- organize_files: sorting, tidying, moving, grouping, renaming or cleaning up files or folders, finding duplicate \
+files, or freeing up space\n\
 - summarize_documents: summaries, notes, study guides or questions from PDFs or documents\n\
 - analyze_spreadsheet: spreadsheets, invoices, expenses, sales, totals or reports from data\n\
 - chat: anything else, including greetings, questions, explanations, advice and writing\n\
@@ -35,8 +36,12 @@ everything works offline.\n\
 - Files, chats and settings stay on this Mac. Nothing is uploaded, and nothing is sent to Foxmen Studio.\n\
 - No account or subscription is needed. Signing in is optional.\n\
 - Today you can organize the files in a folder the user adds to the conversation with the + button. You \
-always show a plan first; nothing moves until the user approves it, and every change can be undone.\n\
-- You can also summarize documents (PDF, Word, text, Markdown), answer questions about them, and analyze \
+always show a plan first; nothing moves until the user approves it, and every change can be undone. In that \
+folder you can also rename files after what's inside them (even scans and photos of documents), and clean it up: \
+find duplicate files, installers for apps already installed, archives already unzipped and unfinished downloads, \
+and move them to the Trash (never deleted; Undo brings them back).\n\
+- You can also summarize documents (PDF, Word, text, Markdown, scanned PDFs and images of text, read on the \
+Mac with text recognition), answer questions about them, and analyze \
 spreadsheets (Excel, CSV), in that folder or in files the user attaches with + then “Add files”. Spreadsheet \
 numbers are always calculated exactly by Errandly, not guessed. Any answer can be saved as a PDF with its \
 “Save as PDF” button.\n\
@@ -58,7 +63,7 @@ pub enum Intent {
 const FILE_WORDS: &[&str] = &[
     "folder", "file", "files", "downloads", "desktop", "pdf", "pdfs", "document", "documents", "docs", "spreadsheet",
     "spreadsheets", "excel", "csv", "xlsx", "sheet", "invoices", "receipts", "photos", "images", "pictures",
-    "screenshots", "installers", "slides", "attachments",
+    "screenshots", "installers", "slides", "attachments", "scans", "scanned", "duplicates", "duplicate",
 ];
 
 /// Openings that make a message a question or a writing request, not a job.
@@ -100,9 +105,16 @@ pub fn quick(message: &str, has_folder: bool) -> Option<Intent> {
         return Some(Intent::Chat);
     }
 
-    let organize = has(&["organi", "renam", "sort ", "sort this", "sort my", "tidy", "clean up", "cleanup", "declutter", "arrange", "put in order", "group "]);
+    let organize = has(&[
+        "organi", "renam", "sort ", "sort this", "sort my", "tidy", "clean up", "cleanup", "declutter", "arrange",
+        "put in order", "group ", "duplicat", "free up", "clean my", "clean out", "clear out", "get rid", "junk",
+    ]);
     let summarize = has(&["summar", "study notes", "study guide", "practice question", "key points", "tl;dr", "what's in", "read "]);
     let spreadsheet = has(&["spreadsheet", "excel", "xlsx", "csv", "invoice", "expense", "sales", "budget", "revenue", "profit", "total", "analy"]);
+    // "Rename them by what's inside" is a rename, even though it mentions contents.
+    if text.contains("renam") {
+        return Some(Intent::OrganizeFiles);
+    }
     match (organize, summarize, spreadsheet) {
         (true, false, false) => Some(Intent::OrganizeFiles),
         (false, true, false) => Some(Intent::SummarizeDocuments),
@@ -188,6 +200,10 @@ mod tests {
         assert_eq!(quick("tidy it up please", true), Some(Intent::OrganizeFiles));
         assert_eq!(quick("what should I clean up first?", true), Some(Intent::Chat));
         assert_eq!(quick("tidy it up please", false), Some(Intent::Chat));
+        assert_eq!(q("Clean my Downloads"), Some(Intent::OrganizeFiles));
+        assert_eq!(q("find duplicate files"), Some(Intent::OrganizeFiles));
+        assert_eq!(q("rename my scans by what's inside"), Some(Intent::OrganizeFiles));
+        assert_eq!(quick("free up some space", true), Some(Intent::OrganizeFiles));
     }
 
     #[test]

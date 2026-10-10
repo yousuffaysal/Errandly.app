@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import Workspace from "../components/Workspace";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { fakeBackend } from "./fakeBackend";
+import type { Task } from "../types";
 
 describe("Errandly smoke tests", () => {
   it("a new user is asked the onboarding questions, and answers are saved", async () => {
@@ -93,6 +94,43 @@ describe("Errandly smoke tests", () => {
     expect(await screen.findByText("A second answer.")).toBeInTheDocument();
     expect(screen.queryByText("very strong")).not.toBeInTheDocument();
     expect(calls.some((c) => c.cmd === "regenerate")).toBe(true);
+  });
+
+  it("a cleanup plan shows what goes to the Trash and why, then undoes", async () => {
+    const root = "/Users/me/Downloads";
+    const trash = "/Users/me/.Trash";
+    const task: Task = {
+      id: "t1", instruction: "clean my downloads", status: "awaiting_approval", modelId: "Ario", root,
+      conversationId: "c1", error: null, createdAt: "", completedAt: null, undoneAt: null,
+      plan: {
+        categories: ["Duplicates", "Installers"], scannedFiles: 40, leftInPlace: [], rejectedOutputs: 0, kind: "clean",
+        freedBytes: 3 * 1024 ** 3,
+        reasons: {
+          "Docker.dmg": { group: "Installers", detail: "Docker is already installed", size: 2 * 1024 ** 3 },
+          "report (1).pdf": { group: "Duplicates", detail: "Same as “report.pdf”, which stays", size: 1024 ** 3 },
+        },
+      },
+      steps: [
+        { seq: 0, op: "trash_file", from: `${root}/Docker.dmg`, to: `${trash}/Docker.dmg`, status: "pending", error: null },
+        { seq: 1, op: "trash_file", from: `${root}/report (1).pdf`, to: `${trash}/report (1).pdf`, status: "pending", error: null },
+      ],
+    };
+    const { calls } = fakeBackend({ profileCompleted: true, reply: () => ({ text: "I found 2 files.", task }) });
+    render(<Workspace />);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Message Errandly"), "clean my downloads{Enter}");
+
+    expect(await screen.findByText("Space to free up")).toBeInTheDocument();
+    expect(screen.getByText("3.0 GB")).toBeInTheDocument();
+    expect(screen.getByText("Docker is already installed")).toBeInTheDocument();
+    expect(screen.getByText(/Nothing is deleted/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Move to Trash/ }));
+    expect(await screen.findByText("In the Trash")).toBeInTheDocument();
+    expect(calls.some((c) => c.cmd === "approve_task")).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: /Undo/ }));
+    expect(await screen.findByText("Files restored")).toBeInTheDocument();
   });
 
   it("the / menu finds a command and sends it", async () => {

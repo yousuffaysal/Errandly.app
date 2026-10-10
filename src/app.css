@@ -331,3 +331,6 @@ body { -webkit-font-smoothing: antialiased; }
 .ew-message-tools button { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: #66715a !important; }
 .ew-message-tools button:hover { background: #eef1e6 !important; color: #33402a !important; }
 @media (max-width: 650px) { .ew-message-tools { margin-left: 0; opacity: 1; } }
+
+/* Four suggestions on the welcome screen, two by two. */
+.ew .ew-suggestions { grid-template-columns: repeat(2, minmax(0, 1fr)); }

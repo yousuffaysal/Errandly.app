@@ -180,7 +180,7 @@ fn finish(root: &Path, files: &[FileEntry], placements: &HashMap<usize, Placemen
     let mut categories: Vec<String> = placements.values().filter_map(|p| p.folder.clone()).collect();
     categories.sort();
     categories.dedup();
-    Ok(Planned { meta: PlanMeta { categories, scanned_files: files.len(), left_in_place, rejected_outputs: 0 }, operations })
+    Ok(Planned { meta: PlanMeta { categories, scanned_files: files.len(), left_in_place, ..Default::default() }, operations })
 }
 
 #[cfg(test)]

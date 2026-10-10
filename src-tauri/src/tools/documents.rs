@@ -3,6 +3,7 @@
 use std::io::Read;
 use std::path::Path;
 
+use super::ocr;
 use crate::error::{AppError, Result};
 
 /// More than enough for a summary; keeps memory and model time bounded.
@@ -13,37 +14,57 @@ pub fn is_document(ext: &str) -> bool {
     EXTENSIONS.contains(&ext)
 }
 
+/// A document, or an image whose text can be read (a scan, a photo of a
+/// receipt, a screenshot).
+pub fn is_readable(ext: &str) -> bool {
+    is_document(ext) || ocr::is_image(ext)
+}
+
 /// Extracts readable text. The caller has already checked `path` is inside a
 /// granted folder.
 pub fn extract_text(path: &Path) -> Result<String> {
+    extract(path, ocr::MAX_PDF_PAGES)
+}
+
+/// The opening of a file: enough to tell what it is. Scanned PDFs are read
+/// only up to their second page, so this stays quick.
+pub fn extract_start(path: &Path) -> Result<String> {
+    extract(path, 2)
+}
+
+fn extract(path: &Path, scanned_pages: usize) -> Result<String> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let text = match ext.as_str() {
-        "pdf" => pdf(path)?,
+        "pdf" => pdf(path, scanned_pages)?,
         "docx" => docx(path)?,
         "txt" | "md" | "markdown" => String::from_utf8_lossy(&std::fs::read(path)?).into_owned(),
+        e if ocr::is_image(e) => ocr::image_text(path)?,
         _ => return Err(AppError::Invalid(format!("{ext} files aren't supported yet"))),
     };
     let text = tidy(&text);
     if text.trim().is_empty() {
-        return Err(AppError::Invalid(
-            "no readable text found (it may be a scanned PDF; text recognition is coming later)".into(),
-        ));
+        return Err(AppError::Invalid("no readable text found in this file".into()));
     }
     Ok(text.chars().take(MAX_CHARS).collect())
 }
 
-fn pdf(path: &Path) -> Result<String> {
+fn pdf(path: &Path, scanned_pages: usize) -> Result<String> {
     // Apple's PDFKit (the engine behind Preview) reads every page reliably;
     // the pure-Rust reader is the fallback.
     #[cfg(target_os = "macos")]
-    if let Some(text) = pdfkit_text(path).filter(|t| !t.trim().is_empty()) {
+    if let Some(text) = pdfkit_text(path).filter(|t| has_text(t)) {
         return Ok(text);
     }
-    let path = path.to_path_buf();
+    let owned = path.to_path_buf();
     // The PDF parser can panic on malformed files; contain it to this file.
-    std::panic::catch_unwind(move || pdf_extract::extract_text(&path))
+    let text = std::panic::catch_unwind(move || pdf_extract::extract_text(&owned))
         .map_err(|_| AppError::Invalid("this PDF couldn't be read".into()))?
-        .map_err(|e| AppError::Invalid(format!("this PDF couldn't be read: {e}")))
+        .map_err(|e| AppError::Invalid(format!("this PDF couldn't be read: {e}")));
+    match text {
+        Ok(t) if has_text(&t) => Ok(t),
+        // No text layer: a scan. Read the pages themselves.
+        _ => ocr::pdf_pages(path, scanned_pages),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -56,6 +77,11 @@ fn pdfkit_text(path: &Path) -> Option<String> {
     let doc = unsafe { PDFDocument::initWithURL(PDFDocument::alloc(), &url) }?;
     let text = unsafe { doc.string() }?;
     Some(text.to_string())
+}
+
+/// More than a stray page number or header: a real text layer.
+fn has_text(t: &str) -> bool {
+    t.chars().filter(|c| c.is_alphanumeric()).count() >= 20
 }
 
 fn docx(path: &Path) -> Result<String> {

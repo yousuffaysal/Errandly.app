@@ -25,11 +25,11 @@ use crate::storage::repo::{self, Grant, StepStatus, TaskStatus, TaskView};
 use crate::storage::sqlite::Db;
 use crate::agents;
 use crate::agents::assets;
-use crate::agents::{ask, pdf_reports};
+use crate::agents::{ask, cleaner, pdf_reports, renamer};
 use crate::agents::slash::{self, Slash};
 use crate::security::permissions::ensure_within;
 use crate::tools::files::{scan_folder, subfolders, FileEntry};
-use crate::tools::{documents, pdf, spreadsheets};
+use crate::tools::{documents, ocr, pdf, spreadsheets};
 
 /// Documents summarized per request; more can be named explicitly.
 const MAX_DOCS: usize = 5;
@@ -459,12 +459,13 @@ pub fn detach_folder(state: State<'_, AppState>, conversation_id: String) -> Res
 #[tauri::command]
 pub async fn attach_files(app: AppHandle, state: State<'_, AppState>, conversation_id: String) -> Result<ConversationView> {
     own_conversation(&state.db, &conversation_id)?;
-    let kinds: Vec<&str> = documents::EXTENSIONS.iter().chain(spreadsheets::EXTENSIONS).copied().collect();
+    let kinds: Vec<&str> =
+        documents::EXTENSIONS.iter().chain(spreadsheets::EXTENSIONS).chain(ocr::IMAGE_EXTENSIONS).copied().collect();
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
             .set_title("Choose files for Errandly to read")
-            .add_filter("Documents and spreadsheets", &kinds)
+            .add_filter("Documents, spreadsheets and images", &kinds)
             .blocking_pick_files()
     })
     .await
@@ -506,8 +507,8 @@ fn canonical_file(path: &std::path::Path) -> Result<PathBuf> {
         return Err(AppError::Permission(format!("{} isn't a regular file", path.display())));
     }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-    if !documents::is_document(&ext) && !spreadsheets::is_spreadsheet(&ext) {
-        return Err(AppError::Invalid("Errandly reads PDF, Word, text, Markdown, Excel and CSV files".into()));
+    if !documents::is_readable(&ext) && !spreadsheets::is_spreadsheet(&ext) {
+        return Err(AppError::Invalid("Errandly reads PDF, Word, text, Markdown, Excel, CSV and image files".into()));
     }
     Ok(std::fs::canonicalize(path)?)
 }
@@ -711,7 +712,7 @@ async fn respond(
     };
     let text = text.as_str();
     let files = attached(conv);
-    let has_docs = files.iter().any(|f| documents::is_document(&f.2));
+    let has_docs = files.iter().any(|f| documents::is_readable(&f.2));
     let has_sheet = files.iter().any(|f| spreadsheets::is_spreadsheet(&f.2));
     // "Summarize it in 2 lines" is answered as asked, in the conversation;
     // a plain "summarize this" gets the summary card.
@@ -755,7 +756,7 @@ async fn respond(
                 .map_err(|e| AppError::Invalid(e.to_string()))?;
                 let excerpts = if custom_summary {
                     let docs: Vec<(String, String)> =
-                        docs.into_iter().filter(|(n, _)| files.iter().any(|f| f.0 == *n && documents::is_document(&f.2))).collect();
+                        docs.into_iter().filter(|(n, _)| files.iter().any(|f| f.0 == *n && documents::is_readable(&f.2))).collect();
                     ask::overview(&docs, ask::BUDGET_CHARS)
                 } else {
                     ask::excerpts(&docs, task.as_deref().unwrap_or(text), ask::BUDGET_CHARS)
@@ -810,7 +811,7 @@ async fn respond(
         Intent::SummarizeDocuments => {
             // Attached documents come first; otherwise the folder's.
             let (source, picked, total): (String, Vec<(String, PathBuf)>, usize) = if has_docs || conv.folder.is_none() {
-                let all = pick_attached(&files, text, documents::is_document);
+                let all = pick_attached(&files, text, documents::is_readable);
                 let total = all.len();
                 ("Attached files".into(), all.into_iter().take(MAX_DOCS).collect(), total)
             } else {
@@ -932,9 +933,27 @@ async fn respond(
             // Simple requests are sorted instantly by code; the model only
             // handles requests that need judgement.
             let rename = assets::wants_rename(text);
-            let planned = if assets::is_brand_request(text, &root, &files) {
+            let readable = files.iter().any(|f| documents::is_readable(&f.extension));
+            let cleanup = cleaner::wants_cleanup(text, &root) && !rename;
+            let planned = if cleanup {
+                emit(2, "Looking for duplicates and leftovers".into());
+                let (root, files) = (root.clone(), files.clone());
+                tauri::async_runtime::spawn_blocking(move || {
+                    cleaner::plan_cleanup(&root, &files, &cleaner::installed_apps(), std::time::SystemTime::now())
+                })
+                .await
+                .map_err(|e| AppError::Invalid(e.to_string()))?
+            } else if assets::is_brand_request(text, &root, &files) {
                 emit(2, "Sorting your logos and icons".into());
                 assets::plan_brand(&root, &files, rename)
+            } else if rename && readable {
+                let read = |p: PathBuf| async move {
+                    tauri::async_runtime::spawn_blocking(move || documents::extract_start(&p))
+                        .await
+                        .map_err(|e| AppError::Invalid(e.to_string()))?
+                };
+                let progress = |done: usize, total: usize| emit(2, format!("Reading files to name them ({} of {total})", done + 1));
+                renamer::plan_content_names(&llm.precise(), text, &root, &files, persona.id, read, cancel, &progress).await
             } else if rename {
                 emit(2, "Choosing clear names".into());
                 assets::plan_clean_names(&root, &files, persona.id)
@@ -948,8 +967,34 @@ async fn respond(
                 Ok(p) => {
                     let meta = serde_json::to_string(&p.meta).expect("plan meta serializes");
                     repo::save_plan(db, &task_id, &meta, &p.operations)?;
-                    let moves = p.operations.iter().filter(|o| matches!(o, Operation::MoveFile { .. })).count();
+                    let moves = p.operations.iter().filter(|o| o.file_move().is_some()).count();
                     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    if cleanup {
+                        if moves == 0 {
+                            repo::finish_task(db, &task_id, TaskStatus::Cancelled, Some("nothing to clean up"))?;
+                            return Ok(Reply::text(format!(
+                                "{name} already looks tidy: no duplicate files, leftover installers, unzipped archives \
+                                 or unfinished downloads. If you’d like it sorted into folders instead, ask me to organize it."
+                            )));
+                        }
+                        return Ok(Reply {
+                            text: format!(
+                                "I found {moves} file{} in {name} you probably don’t need, about {} in all. They’d go to \
+                                 the Trash, not be deleted, and Undo brings them back. Nothing changes until you approve.",
+                                if moves == 1 { "" } else { "s" },
+                                cleaner::human_size(p.meta.freed_bytes)
+                            ),
+                            task_id: Some(task_id),
+                            card: None,
+                        });
+                    }
+                    if moves == 0 && rename && readable {
+                        repo::finish_task(db, &task_id, TaskStatus::Cancelled, Some("nothing to rename"))?;
+                        return Ok(Reply::text(format!(
+                            "The files in {name} already have clear names, so there’s nothing to rename. To rename \
+                             every file from what’s inside it anyway, say “rename all files by their content”."
+                        )));
+                    }
                     if moves == 0 {
                         repo::finish_task(db, &task_id, TaskStatus::Cancelled, Some("nothing to move"))?;
                         return Ok(Reply::text(format!(
@@ -1121,11 +1166,15 @@ pub async fn approve_task(state: State<'_, AppState>, task_id: String) -> Result
     let outcome = result.and_then(|r| r);
     let task = repo::get_task(&state.db, &task_id)?;
 
-    let count = |status: StepStatus| {
-        task.steps.iter().filter(|s| s.status == status && matches!(s.op, Operation::MoveFile { .. })).count()
-    };
+    let count = |status: StepStatus| task.steps.iter().filter(|s| s.status == status && s.op.file_move().is_some()).count();
+    let to_trash = task.steps.iter().any(|s| matches!(s.op, Operation::TrashFile { .. }));
     let note = match (&outcome, task.status) {
         (Err(e), _) => format!("That didn’t work, and no files were moved: {e}"),
+        (Ok(_), TaskStatus::Completed) if to_trash => format!(
+            "Done. I moved {} files to the Trash and checked each one. Empty the Trash when you’re ready to free \
+             the space, or undo this to bring them all back.",
+            count(StepStatus::Done)
+        ),
         (Ok(_), TaskStatus::Completed) => format!(
             "Done. I moved {} files and checked each one on disk. You can undo this anytime.",
             count(StepStatus::Done)
@@ -1179,12 +1228,15 @@ pub fn undo_task(state: State<'_, AppState>, task_id: String) -> Result<TaskView
     }
     let outcome = executor::undo(&state.db, &task_id)?;
     let task = repo::get_task(&state.db, &task_id)?;
-    let restored = task
+    let restored = task.steps.iter().filter(|s| s.status == StepStatus::Undone && s.op.file_move().is_some()).count();
+    let mut note = format!("Undone. {restored} files are back where they were.");
+    let trash_failures = task
         .steps
         .iter()
-        .filter(|s| s.status == StepStatus::Undone && matches!(s.op, Operation::MoveFile { .. }))
-        .count();
-    let mut note = format!("Undone. {restored} files are back where they were.");
+        .any(|s| s.status == StepStatus::UndoFailed && matches!(s.op, Operation::TrashFile { .. }));
+    if trash_failures {
+        note.push_str(" Some files were no longer in the Trash (it may have been emptied), so they couldn’t come back.");
+    }
     if outcome.failed > 0 {
         note.push_str(&format!(
             " {} item(s) couldn’t be restored, usually a folder that now holds other files. I left those in place.",
@@ -1432,6 +1484,7 @@ mod live {
                         from.file_name().unwrap().to_string_lossy(),
                         to.strip_prefix(&task.root).unwrap().display()
                     ),
+                    Operation::TrashFile { from, .. } => println!("  {} → Trash", from.file_name().unwrap().to_string_lossy()),
                 }
             }
         }

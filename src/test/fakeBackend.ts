@@ -1,11 +1,13 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { Conversation, Message, Profile, ResultCard } from "../types";
+import type { Conversation, Message, Profile, ResultCard, Task } from "../types";
 
 /**
  * An in-memory stand-in for the Rust backend, speaking the same commands, so
  * smoke tests drive the real UI end to end without a model or a disk.
  */
-export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: string) => { text: string; card?: ResultCard } } = {}) {
+type FakeReply = { text: string; card?: ResultCard; task?: Task };
+
+export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: string) => FakeReply } = {}) {
   const calls: { cmd: string; args: Record<string, unknown> }[] = [];
   let profile: Profile = {
     name: opts.profileCompleted ? "Yusuf" : "",
@@ -23,6 +25,7 @@ export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: s
     instructions: "", messageCount: 0, createdAt: "2026-10-08T10:00:00Z", updatedAt: "2026-10-08T10:00:00Z",
   };
   const messages: Message[] = [];
+  const tasks = new Map<string, Task>();
   let nextId = 1;
   const persona = (id: string, name: string) => ({
     id, name, tagline: "The organizer", behavior: "Tidy.", skills: ["Organize any folder"], coming: [], installed: true,
@@ -57,9 +60,24 @@ export function fakeBackend(opts: { profileCompleted?: boolean; reply?: (text: s
         case "send_message": {
           const now = new Date().toISOString();
           messages.push({ id: nextId++, role: "user", text: a.text, taskId: null, card: null, createdAt: now });
-          const r = opts.reply?.(a.text) ?? { text: "Hello! I’m Ario." };
-          messages.push({ id: nextId++, role: "assistant", text: r.text, taskId: null, card: r.card ?? null, createdAt: now });
+          const r: FakeReply = opts.reply?.(a.text) ?? { text: "Hello! I’m Ario." };
+          if (r.task) tasks.set(r.task.id, r.task);
+          messages.push({ id: nextId++, role: "assistant", text: r.text, taskId: r.task?.id ?? null, card: r.card ?? null, createdAt: now });
           return view();
+        }
+        case "get_task":
+          return tasks.get(a.taskId);
+        case "approve_task": {
+          const t = tasks.get(a.taskId)!;
+          t.status = "completed";
+          t.steps = t.steps.map((s) => ({ ...s, status: "done" }));
+          return t;
+        }
+        case "undo_task": {
+          const t = tasks.get(a.taskId)!;
+          t.undoneAt = new Date().toISOString();
+          t.steps = t.steps.map((s) => ({ ...s, status: "undone" }));
+          return t;
         }
         case "regenerate": {
           messages.pop();

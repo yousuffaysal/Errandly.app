@@ -99,6 +99,7 @@ pub async fn plan_organize<L: Llm>(
             scanned_files: files.len(),
             left_in_place,
             rejected_outputs: rejected,
+            ..Default::default()
         },
         operations,
     })
@@ -188,7 +189,7 @@ pub fn plan_simple(root: &Path, files: &[FileEntry], persona: &str) -> Result<Pl
     categories.sort();
     categories.dedup();
     Ok(Planned {
-        meta: PlanMeta { categories, scanned_files: files.len(), left_in_place, rejected_outputs: 0 },
+        meta: PlanMeta { categories, scanned_files: files.len(), left_in_place, ..Default::default() },
         operations,
     })
 }

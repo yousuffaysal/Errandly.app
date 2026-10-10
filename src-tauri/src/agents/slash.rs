@@ -20,7 +20,8 @@ pub struct Command {
 
 pub const COMMANDS: &[Command] = &[
     Command { name: "organize", title: "Organize folder", hint: "Sort the attached folder into clear folders", takes_text: false, needs_folder: true },
-    Command { name: "rename", title: "Rename files", hint: "Give files clear, consistent names and sort them", takes_text: false, needs_folder: true },
+    Command { name: "rename", title: "Rename by content", hint: "Name each file after what's inside it, scans too", takes_text: false, needs_folder: true },
+    Command { name: "clean", title: "Clean up", hint: "Duplicates, old installers and leftovers to the Trash", takes_text: false, needs_folder: true },
     Command { name: "summarize", title: "Summarize documents", hint: "Summaries of the PDFs and documents in the folder", takes_text: false, needs_folder: true },
     Command { name: "analyze", title: "Analyze spreadsheet", hint: "Totals and insights from an Excel or CSV file", takes_text: false, needs_folder: true },
     Command { name: "email", title: "Write an email", hint: "A ready-to-send email: say who it's for and what about", takes_text: true, needs_folder: false },
@@ -58,7 +59,8 @@ pub fn parse(message: &str) -> Option<Slash> {
     let extra = |t: &str| if t.is_empty() { String::new() } else { format!(" {t}") };
     Some(match cmd.name {
         "organize" => Slash::Files(Intent::OrganizeFiles, format!("organize this folder{}", extra(text))),
-        "rename" => Slash::Files(Intent::OrganizeFiles, format!("rename the files with clear names and organize them{}", extra(text))),
+        "rename" => Slash::Files(Intent::OrganizeFiles, format!("rename the files with unclear names, based on what's inside them{}", extra(text))),
+        "clean" => Slash::Files(Intent::OrganizeFiles, format!("clean up this folder: duplicates and leftovers to the Trash{}", extra(text))),
         "summarize" => Slash::Files(Intent::SummarizeDocuments, format!("summarize the documents in this folder{}", extra(text))),
         "analyze" => Slash::Files(Intent::AnalyzeSpreadsheet, format!("analyze the spreadsheet{}", extra(text))),
         "email" => Slash::Write(format!(

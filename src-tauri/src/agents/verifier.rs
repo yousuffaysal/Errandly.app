@@ -18,7 +18,9 @@ pub fn verify(db: &Db, task_id: &str) -> Result<Report> {
     for step in repo::steps(db, task_id)?.iter().filter(|s| s.status == StepStatus::Done) {
         let ok = match &step.op {
             Operation::CreateFolder { path } => path.is_dir(),
-            Operation::MoveFile { from, to } => to.is_file() && std::fs::symlink_metadata(from).is_err(),
+            Operation::MoveFile { from, to } | Operation::TrashFile { from, to } => {
+                to.is_file() && std::fs::symlink_metadata(from).is_err()
+            }
         };
         if ok {
             report.verified += 1;
@@ -26,6 +28,7 @@ pub fn verify(db: &Db, task_id: &str) -> Result<Report> {
             report.mismatches.push(match &step.op {
                 Operation::CreateFolder { path } => format!("folder missing: {}", path.display()),
                 Operation::MoveFile { to, .. } => format!("file not at destination: {}", to.display()),
+                Operation::TrashFile { to, .. } => format!("file not in the Trash: {}", to.display()),
             });
         }
     }
