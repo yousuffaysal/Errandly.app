@@ -37,7 +37,8 @@ everything works offline.\n\
 - No account or subscription is needed. Signing in is optional.\n\
 - Today you can organize the files in a folder the user adds to the conversation with the + button. You \
 always show a plan first; nothing moves until the user approves it, and every change can be undone. In that \
-folder you can also rename files after what's inside them (even scans and photos of documents), and clean it up: \
+folder you can also pick out the files the user asks for (\"put all my CVs in one folder\") by their names and \
+what's inside them, and move only those; rename files after what's inside them (even scans and photos of documents), and clean it up: \
 find duplicate files, installers for apps already installed, archives already unzipped and unfinished downloads, \
 and move them to the Trash (never deleted; Undo brings them back).\n\
 - You can also summarize documents (PDF, Word, text, Markdown, scanned PDFs and images of text, read on the \
@@ -108,11 +109,14 @@ pub fn quick(message: &str, has_folder: bool) -> Option<Intent> {
     let organize = has(&[
         "organi", "renam", "sort ", "sort this", "sort my", "tidy", "clean up", "cleanup", "declutter", "arrange",
         "put in order", "group ", "duplicat", "free up", "clean my", "clean out", "clear out", "get rid", "junk",
+        "one folder", "a folder", "new folder", "same folder", "together", "one place", "gather", "collect",
+        "move all", "put all", "move every", "put every", "move my", "move the",
     ]);
     let summarize = has(&["summar", "study notes", "study guide", "practice question", "key points", "tl;dr", "what's in", "read "]);
     let spreadsheet = has(&["spreadsheet", "excel", "xlsx", "csv", "invoice", "expense", "sales", "budget", "revenue", "profit", "total", "analy"]);
     // "Rename them by what's inside" is a rename, even though it mentions contents.
-    if text.contains("renam") {
+    // So is "put them all in one folder" / "together": that's moving files.
+    if text.contains("renam") || has(&["one folder", "a folder", "new folder", "same folder", "together", "one place"]) {
         return Some(Intent::OrganizeFiles);
     }
     match (organize, summarize, spreadsheet) {
@@ -202,6 +206,8 @@ mod tests {
         assert_eq!(quick("tidy it up please", false), Some(Intent::Chat));
         assert_eq!(q("Clean my Downloads"), Some(Intent::OrganizeFiles));
         assert_eq!(q("find duplicate files"), Some(Intent::OrganizeFiles));
+        assert_eq!(q("make all cv pdf in one folder"), Some(Intent::OrganizeFiles));
+        assert_eq!(q("put every invoice pdf together"), Some(Intent::OrganizeFiles));
         assert_eq!(q("rename my scans by what's inside"), Some(Intent::OrganizeFiles));
         assert_eq!(quick("free up some space", true), Some(Intent::OrganizeFiles));
     }

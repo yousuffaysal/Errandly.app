@@ -32,6 +32,12 @@ pub fn extract_start(path: &Path) -> Result<String> {
     extract(path, 2)
 }
 
+/// Quick text for searching many files: text layers only, no text
+/// recognition, so scans read as empty.
+pub fn extract_quick(path: &Path) -> Result<String> {
+    extract(path, 0)
+}
+
 fn extract(path: &Path, scanned_pages: usize) -> Result<String> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let text = match ext.as_str() {
@@ -62,6 +68,7 @@ fn pdf(path: &Path, scanned_pages: usize) -> Result<String> {
         .map_err(|e| AppError::Invalid(format!("this PDF couldn't be read: {e}")));
     match text {
         Ok(t) if has_text(&t) => Ok(t),
+        _ if scanned_pages == 0 => Ok(String::new()),
         // No text layer: a scan. Read the pages themselves.
         _ => ocr::pdf_pages(path, scanned_pages),
     }

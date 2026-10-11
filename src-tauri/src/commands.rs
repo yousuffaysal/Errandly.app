@@ -25,7 +25,7 @@ use crate::storage::repo::{self, Grant, StepStatus, TaskStatus, TaskView};
 use crate::storage::sqlite::Db;
 use crate::agents;
 use crate::agents::assets;
-use crate::agents::{ask, cleaner, pdf_reports, renamer};
+use crate::agents::{ask, cleaner, gather, pdf_reports, renamer};
 use crate::agents::slash::{self, Slash};
 use crate::security::permissions::ensure_within;
 use crate::tools::files::{scan_folder, subfolders, FileEntry};
@@ -935,7 +935,28 @@ async fn respond(
             let rename = assets::wants_rename(text);
             let readable = files.iter().any(|f| documents::is_readable(&f.extension));
             let cleanup = cleaner::wants_cleanup(text, &root) && !rename;
-            let planned = if cleanup {
+            let simple = planner::is_simple_request(text) && conv.instructions.trim().is_empty();
+            let brand = assets::is_brand_request(text, &root, &files);
+            // "Put all my CVs in one folder": pick out those files and move
+            // only them. The model reads the request; code finds the files.
+            let selective = gather::looks_selective(text);
+            let gathering = if cleanup || rename || (!selective && (simple || brand)) {
+                None
+            } else {
+                emit(1, "Understanding what you’re after".into());
+                let u = gather::understand(&llm.precise(), text).await?;
+                (u.has_target() && (selective || u.move_matching)).then_some(u)
+            };
+            let planned = if let Some(u) = &gathering {
+                emit(2, format!("Looking for {}", u.what.to_lowercase()));
+                let read = |paths: Vec<PathBuf>| async move {
+                    tauri::async_runtime::spawn_blocking(move || read_starts(&paths))
+                        .await
+                        .map_err(|e| AppError::Invalid(e.to_string()))
+                };
+                let progress = |label: String| emit(2, label);
+                gather::plan_gather(&llm.precise(), u, &root, &files, read, cancel, &progress).await
+            } else if cleanup {
                 emit(2, "Looking for duplicates and leftovers".into());
                 let (root, files) = (root.clone(), files.clone());
                 tauri::async_runtime::spawn_blocking(move || {
@@ -943,7 +964,7 @@ async fn respond(
                 })
                 .await
                 .map_err(|e| AppError::Invalid(e.to_string()))?
-            } else if assets::is_brand_request(text, &root, &files) {
+            } else if brand {
                 emit(2, "Sorting your logos and icons".into());
                 assets::plan_brand(&root, &files, rename)
             } else if rename && readable {
@@ -957,7 +978,7 @@ async fn respond(
             } else if rename {
                 emit(2, "Choosing clear names".into());
                 assets::plan_clean_names(&root, &files, persona.id)
-            } else if planner::is_simple_request(text) && conv.instructions.trim().is_empty() {
+            } else if simple {
                 emit(2, "Sorting files".into());
                 planner::plan_simple(&root, &files, persona.id)
             } else {
@@ -969,6 +990,42 @@ async fn respond(
                     repo::save_plan(db, &task_id, &meta, &p.operations)?;
                     let moves = p.operations.iter().filter(|o| o.file_move().is_some()).count();
                     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    if let Some(u) = &gathering {
+                        let what = if u.what.chars().any(|c| c.is_uppercase()) && u.what.chars().skip(1).any(|c| c.is_uppercase()) {
+                            u.what.clone()
+                        } else {
+                            u.what.to_lowercase()
+                        };
+                        if moves == 0 {
+                            repo::finish_task(db, &task_id, TaskStatus::Cancelled, Some("nothing matched"))?;
+                            return Ok(Reply::text(format!(
+                                "I looked through the {} files in {name} but didn’t find any {what}. If they’re named \
+                                 differently, tell me a word that’s in their names or inside them, and I’ll look again.",
+                                files.len()
+                            )));
+                        }
+                        let by_name = p.meta.reasons.values().filter(|r| r.group == gather::BY_NAME).count();
+                        let by_contents = p.meta.reasons.len() - by_name;
+                        let how = match (by_name, by_contents) {
+                            (_, 0) => String::new(),
+                            (0, _) => " (found by what’s inside them)".to_string(),
+                            (n, c) => format!(" ({n} by name, {c} by what’s inside)"),
+                        };
+                        let folder = p.meta.categories.first().cloned().unwrap_or_default();
+                        let new = p.operations.iter().any(|o| matches!(o, Operation::CreateFolder { .. }));
+                        return Ok(Reply {
+                            text: format!(
+                                "I found {moves} file{} that look{} like {what}{how}. I’d move just those into {} “{folder}”; \
+                                 the other {} files stay where they are. Nothing changes until you approve.",
+                                if moves == 1 { "" } else { "s" },
+                                if moves == 1 { "s" } else { "" },
+                                if new { "a new folder" } else { "the folder" },
+                                files.len() - moves
+                            ),
+                            task_id: Some(task_id),
+                            card: None,
+                        });
+                    }
                     if cleanup {
                         if moves == 0 {
                             repo::finish_task(db, &task_id, TaskStatus::Cancelled, Some("nothing to clean up"))?;
@@ -1032,6 +1089,25 @@ async fn respond(
             }
         }
     }
+}
+
+/// The start of each document's text layer (None if unreadable), read a
+/// few at a time so a folder of hundreds of PDFs stays quick.
+fn read_starts(paths: &[PathBuf]) -> Vec<Option<String>> {
+    use std::sync::atomic::AtomicUsize;
+    let out = std::sync::Mutex::new(vec![None; paths.len()]);
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        for _ in 0..6 {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(path) = paths.get(i) else { break };
+                let text = documents::extract_quick(path).ok().map(|t| t.chars().take(gather::EXCERPT_CHARS).collect());
+                out.lock().unwrap_or_else(|e| e.into_inner())[i] = text;
+            });
+        }
+    });
+    out.into_inner().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The conversation's granted folder (re-checked) and the files directly in it.

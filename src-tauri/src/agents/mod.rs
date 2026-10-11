@@ -4,6 +4,7 @@ pub mod assets;
 pub mod cleaner;
 pub mod documents;
 pub mod executor;
+pub mod gather;
 pub mod pdf_reports;
 pub mod renamer;
 pub mod plan;

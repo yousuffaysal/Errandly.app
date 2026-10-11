@@ -13,6 +13,7 @@ What it does today (the PRD's three P0 workflows):
 | "Summarize the documents in this folder" | PDF, Word, text and Markdown files are read locally and summarized; save as Markdown |
 | "Analyze the sales spreadsheet" | Excel/CSV totals and groupings **calculated by code**; the model only explains them; save as an Excel report with a chart |
 | "Rename my scans" (`/rename`) | Files with meaningless names (`scan_0034.pdf`, `IMG_4821.png`) are read and renamed after their contents, e.g. `Invoice - Acme Corporation - 2026-03-14.pdf`; only details found in the file make it into the name |
+| "Put all my CV pdfs in one folder" | The model works out what's meant (any topic: CVs, invoices, a course, a client…) and what to look for; code finds the files by name, then by reading the documents, and asks the model only about unclear ones. Only those files move; everything else stays put |
 | "Clean my Downloads" (`/clean`) | Exact duplicates, installers for apps already installed (or 30+ days old), archives already unzipped and unfinished downloads go **to the Trash**, each with its reason; Undo brings them back |
 
 Scanned PDFs and images of text (PNG, JPG, HEIC, …) are read with Apple's Vision text

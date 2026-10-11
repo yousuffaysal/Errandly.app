@@ -40,6 +40,8 @@ export function TaskCard({ taskId, onChanged, onError }: {
   };
 
   const clean = task.plan?.kind === "clean";
+  const gather = task.plan?.kind === "gather";
+  const reasons = task.plan?.reasons ?? {};
   const moves = task.steps.filter((s): s is Move => s.op === "move_file");
   const created = new Set(task.steps.flatMap((s) => (s.op === "create_folder" ? [relative(task.root, s.path)] : [])));
   const groups = groupByFolder(task.root, moves);
@@ -61,7 +63,7 @@ export function TaskCard({ taskId, onChanged, onError }: {
           <div>
             <span className="ew-report-icon"><FolderTree size={19} /></span>
             <strong>
-              {basename(task.root)}, in order
+              {gather ? `Picked out of ${basename(task.root)}` : `${basename(task.root)}, in order`}
               <small>
                 {awaiting ? "Proposed plan" : "Organized"} · {task.plan?.scannedFiles ?? total} files looked at · {task.modelId}
               </small>
@@ -108,7 +110,7 @@ export function TaskCard({ taskId, onChanged, onError }: {
           ))}
         </div>
 
-        <details className="ew-review" open={renamed > 0 && moves.length <= 30}>
+        <details className="ew-review" open={(renamed > 0 || gather) && moves.length <= 30}>
           <summary>Review every change</summary>
           <ul>
             {moves.map((m) => (
@@ -117,6 +119,7 @@ export function TaskCard({ taskId, onChanged, onError }: {
                 <span className="ew-review-arrow">→</span>
                 <span className="ew-review-to">{relative(task.root, m.to)}</span>
                 {basename(m.from) !== basename(m.to) && <em className="ew-new-folder">renamed</em>}
+                {reasons[basename(m.from)] && <em className="ew-new-folder">{reasons[basename(m.from)].detail}</em>}
                 {!awaiting && <span className="ew-review-status">{m.status.replace("_", " ")}</span>}
                 {m.error && <small>{m.error}</small>}
               </li>
@@ -134,7 +137,9 @@ export function TaskCard({ taskId, onChanged, onError }: {
 
         <div className="ew-report-foot">
           <ShieldCheck size={13} />
-          {awaiting
+          {awaiting && gather
+            ? "Only these files move · everything else stays where it is · nothing deleted"
+            : awaiting
             ? `Nothing moves until you approve · ${left.length} left in place · nothing deleted`
             : task.undoneAt
               ? "Restored to where everything was"
@@ -161,7 +166,7 @@ export function TaskCard({ taskId, onChanged, onError }: {
       ) : awaiting ? (
         <div className="ew-actions">
           <button className="ew-followup ew-approve" onClick={() => run("moving", () => api.approveTask(task.id))}>
-            {clean ? "Move to Trash" : "Approve & organize"}
+            {clean ? "Move to Trash" : gather ? "Approve & move" : "Approve & organize"}
             {clean ? <Trash2 size={14} /> : <ArrowUpRight size={14} />}
           </button>
           <button className="ew-followup" onClick={() => run(null, () => api.cancelTask(task.id))}>
